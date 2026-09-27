@@ -24,11 +24,16 @@ const adminLoading = ref(false);
 const ownRun = ref<BrowserRun | null>(null);
 const ACTIVE_RUN_STORAGE_KEY = 'ai-zhili.active-run.v1';
 const LEGACY_ACTIVE_RUN_STORAGE_KEY = 'html-workbench.active-run.v1';
+const AUTO_TEST_STORAGE_KEY = 'ai-zhili.auto-test.v1';
+const AUTO_TEST_INTERVAL_MS = 10 * 60 * 1000;
+const autoTestEnabled = ref(true);
+let autoTestTimer: number | undefined;
 let eventSource: EventSource | null = null;
 let noticeTimer: number | undefined;
 
 const configForm = ref<ModelInput>({ group: MODEL_GROUPS[0], baseUrl: 'https://api.opens.chat/v1', model: 'gpt-6-astra', protocol: 'responses', stream: true, isDefault: true, apiKey: '' });
 const selectedConfig = computed(() => configs.value.find(item => item.id === selectedConfigId.value) ?? configs.value[0]);
+const autoTestConfig = computed(() => configs.value.find(item => item.group === 'GRT-PRO稳定' && item.model === 'gpt-6-astra' && item.apiKey));
 const groupedConfigs = computed(() => MODEL_GROUPS.map(group => ({ group, configs: configs.value.filter(item => item.group === group) })));
 const activeRun = computed(() => activeRunId.value ? details.value[activeRunId.value] : undefined);
 const isRunning = computed(() => activeRun.value?.status === 'running');
@@ -119,12 +124,28 @@ function subscribe(id: string) {
   source.onerror = () => { if (activeRunId.value === id) showNotice('生成连接暂时断开，刷新后可继续查看。', 'info'); };
 }
 async function startGeneration() {
-  if (!selectedConfig.value) return showNotice('请先在设置中添加自己的模型配置。', 'error');
+  await generate(selectedConfig.value);
+}
+function scheduleAutoTest() {
+  window.clearInterval(autoTestTimer);
+  if (!autoTestEnabled.value) return;
+  autoTestTimer = window.setInterval(() => {
+    if (!autoTestConfig.value || !prompt.value.trim() || loading.value || ownRun.value || isRunning.value) return;
+    void generate(autoTestConfig.value);
+  }, AUTO_TEST_INTERVAL_MS);
+}
+function setAutoTestEnabled(enabled: boolean) {
+  autoTestEnabled.value = enabled;
+  scheduleAutoTest();
+  try { localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(enabled)); }
+  catch { showNotice('浏览器未能保存自动测试开关，刷新后会恢复默认。', 'info'); }
+}
+async function generate(config: BrowserModelConfig | undefined) {
+  if (!config) return showNotice('请先在设置中添加自己的模型配置。', 'error');
   if (!prompt.value.trim()) return showNotice('请先输入提示词。', 'error');
   if (loading.value || isRunning.value) return;
   loading.value = true;
   try {
-    const config = selectedConfig.value;
     const requestId = crypto.randomUUID();
     const modelConfig = { group: config.group, baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model, protocol: config.protocol, stream: config.stream };
     const result = await api<{ id: string }>('/api/runs', { method: 'POST', body: JSON.stringify({ requestId, modelConfig, prompt: prompt.value }) });
@@ -227,21 +248,33 @@ function syncLocalModels(event: StorageEvent) {
   if (event.key === MODEL_STORAGE_KEY || event.key === null) {
     try { loadConfigs(); } catch (error: any) { showNotice(error.message, 'error'); }
   }
+  if (event.key === AUTO_TEST_STORAGE_KEY || event.key === null) {
+    autoTestEnabled.value = event.newValue !== 'false';
+    scheduleAutoTest();
+  }
 }
 onMounted(async () => {
   window.addEventListener('storage', syncLocalModels);
+  try { autoTestEnabled.value = localStorage.getItem(AUTO_TEST_STORAGE_KEY) !== 'false'; }
+  catch { autoTestEnabled.value = false; showNotice('无法读取自动测试设置，已暂停自动测试。', 'error'); }
   try { loadConfigs(); } catch (error: any) { showNotice(error.message, 'error'); }
   restoreOwnRun();
   try { await loadAdminSession(); } catch (error: any) { showNotice(error.message, 'error'); }
   try { await loadRuns(); } catch (error: any) { showNotice(error.message, 'error'); }
+  scheduleAutoTest();
 });
-onUnmounted(() => { eventSource?.close(); window.clearTimeout(noticeTimer); window.removeEventListener('storage', syncLocalModels); });
+onUnmounted(() => { eventSource?.close(); window.clearTimeout(noticeTimer); window.clearInterval(autoTestTimer); window.removeEventListener('storage', syncLocalModels); });
 </script>
 
 <template>
   <div class="app-shell">
     <main class="content">
-      <section class="composer card"><div class="composer-grid"><div class="model-field"><div class="field-label"><label for="model">使用模型</label><button class="small-link" @click="editConfig()">管理模型 ↗</button></div><div class="model-select-row"><select id="model" :value="selectedConfigId" @change="selectModel(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ configs.length ? '选择模型' : '请先添加模型' }}</option><optgroup v-for="item in groupedConfigs" :key="item.group" :label="item.group"><option v-for="config in item.configs" :key="config.id" :value="config.id">{{ config.group }} · {{ config.model }}</option><option v-if="!item.configs.length" :value="`new:${item.group}`">＋ 配置此分组</option></optgroup></select><button class="select-settings" aria-label="编辑当前模型" @click="editConfig(selectedConfig)">⚙</button></div></div><div class="prompt-field"><div class="field-label"><label for="prompt">你的提示词</label><span class="prompt-hint">描述页面、风格和交互</span></div><textarea id="prompt" v-model="prompt" rows="3" placeholder="例如：做一个小火龙在导弹上骑自行车的 2D SVG 动画，要有云朵、火焰和可以暂停的按钮。"></textarea></div><div class="composer-action"><button v-if="isRunning" class="stop-button" @click="stopGeneration">■ 停止</button><button v-else class="primary-button" :disabled="loading || !selectedConfig" @click="startGeneration"><span>{{ loading ? '准备中…' : '开始生成' }}</span><b>↗</b></button></div></div></section>
+      <section class="composer card"><div class="composer-grid"><div class="model-field"><div class="field-label"><label for="model">使用模型</label><button class="small-link" @click="editConfig()">管理模型 ↗</button></div><div class="model-select-row"><select id="model" :value="selectedConfigId" @change="selectModel(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ configs.length ? '选择模型' : '请先添加模型' }}</option><optgroup v-for="item in groupedConfigs" :key="item.group" :label="item.group"><option v-for="config in item.configs" :key="config.id" :value="config.id">{{ config.group }} · {{ config.model }}</option><option v-if="!item.configs.length" :value="`new:${item.group}`">＋ 配置此分组</option></optgroup></select><button class="select-settings" aria-label="编辑当前模型" @click="editConfig(selectedConfig)">⚙</button></div></div><div class="prompt-field"><div class="field-label"><label for="prompt">你的提示词</label><span class="prompt-hint">描述页面、风格和交互</span></div><textarea id="prompt" v-model="prompt" rows="3" placeholder="例如：做一个小火龙在导弹上骑自行车的 2D SVG 动画，要有云朵、火焰和可以暂停的按钮。"></textarea></div><div class="composer-action"><button v-if="isRunning" class="stop-button" @click="stopGeneration">■ 停止</button><button v-else class="primary-button" :disabled="loading || !selectedConfig" @click="startGeneration"><span>{{ loading ? '准备中…' : '开始生成' }}</span><b>↗</b></button></div></div>
+        <div class="auto-test-control">
+          <label class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra</label>
+          <p>{{ !autoTestEnabled ? '自动测试已暂停。' : !autoTestConfig ? '请先配置 GRT-PRO稳定分组的 gpt-6-astra 模型。' : '已开启：10 分钟后开始，使用当前提示词；生成中跳过本次测试。' }} 请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
+        </div>
+      </section>
       <section class="gallery-section"><div class="gallery-heading"><div><h1>历史记录</h1></div><span class="gallery-count">{{ runs.length }} 个页面</span><button v-if="adminConfigured && !isAdmin" class="admin-button" @click="openAdminLogin">管理员登录</button><div v-else-if="isAdmin" class="admin-session"><span>管理员</span><button @click="logoutAdmin">退出</button></div><button class="refresh-button" @click="loadRunsOnly">刷新 ↻</button></div><div v-if="!runs.length" class="empty-gallery card"><div class="empty-icon">◎</div><h2>还没有生成记录</h2><p>完成第一次生成后，页面预览会出现在这里。</p></div><div v-else class="gallery-grid"><article v-for="run in runs" :key="run.id" class="preview-card" :class="{ selected: selectedCardId === run.id }" @click="openRun(run.id)"><div class="preview-frame"><HtmlPreview v-if="details[run.id]?.html" :html="details[run.id].html!" /><div v-else-if="run.status === 'running'" class="card-loading"><div class="loader"></div><span>正在生成…</span></div><div v-else class="card-failed"><span>◌</span><small>暂无可用预览</small></div><span class="status-ribbon" :class="statusClass(run.status)"><i></i>{{ statusLabel(run.status) }}</span></div><div class="card-info"><div class="card-title">{{ promptPreview(run.prompt) }}</div><div class="card-meta"><span>{{ run.snapshot.group }} · {{ run.snapshot.model }}</span><button v-if="isAdmin" class="delete-button" :disabled="run.status === 'running'" @click.stop="deleteRun(run.id)">删除</button></div><div class="card-time">{{ formatTime(run.createdAt) }}</div></div></article></div></section>
     </main>
     <div v-if="notice" class="toast" :class="`toast-${notice.type}`">{{ notice.text }}</div>
