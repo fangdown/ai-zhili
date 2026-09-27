@@ -25,8 +25,13 @@ const ownRun = ref<BrowserRun | null>(null);
 const ACTIVE_RUN_STORAGE_KEY = 'ai-zhili.active-run.v1';
 const LEGACY_ACTIVE_RUN_STORAGE_KEY = 'html-workbench.active-run.v1';
 const AUTO_TEST_STORAGE_KEY = 'ai-zhili.auto-test.v1';
+const AUTO_TEST_NEXT_RUN_STORAGE_KEY = 'ai-zhili.auto-test.next-run.v1';
 const AUTO_TEST_INTERVAL_MS = 10 * 60 * 1000;
 const autoTestEnabled = ref(true);
+const autoTestNow = ref(Date.now());
+const autoTestNextRunAt = ref(0);
+const autoTestLastMessage = ref('');
+let autoTestChecking = false;
 let autoTestTimer: number | undefined;
 let eventSource: EventSource | null = null;
 let noticeTimer: number | undefined;
@@ -37,6 +42,16 @@ const autoTestConfig = computed(() => configs.value.find(item => item.group === 
 const groupedConfigs = computed(() => MODEL_GROUPS.map(group => ({ group, configs: configs.value.filter(item => item.group === group) })));
 const activeRun = computed(() => activeRunId.value ? details.value[activeRunId.value] : undefined);
 const isRunning = computed(() => activeRun.value?.status === 'running');
+const autoTestStatus = computed(() => {
+  if (!autoTestEnabled.value) return '自动测试已暂停。';
+  if (!autoTestConfig.value) return '请先配置 GRT-PRO稳定分组的 gpt-6-astra 模型。';
+  if (!prompt.value.trim()) return '请先填写提示词。';
+  if (isAutoTestQuietTime(autoTestNow.value)) return '夜间暂停，08:00 后恢复自动测试。';
+  const seconds = Math.max(0, Math.ceil((autoTestNextRunAt.value - autoTestNow.value) / 1000));
+  const time = new Date(autoTestNextRunAt.value).toLocaleTimeString('zh-CN', { hour12: false });
+  const waiting = loading.value || ownRun.value || isRunning.value ? '等待当前任务结束；到时会核对服务器状态。' : '';
+  return waiting + autoTestLastMessage.value + '下次检查：' + time + '（剩余 ' + Math.floor(seconds / 60) + ' 分 ' + seconds % 60 + ' 秒）。';
+});
 
 function showNotice(text: string, type: 'success' | 'error' | 'info' = 'info') { notice.value = { text, type }; window.clearTimeout(noticeTimer); noticeTimer = window.setTimeout(() => notice.value = null, 3600); }
 function formatTime(value: string) { return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
@@ -126,37 +141,70 @@ function subscribe(id: string) {
 async function startGeneration() {
   await generate(selectedConfig.value);
 }
+function isAutoTestQuietTime(timestamp: number) {
+  const hour = new Date(timestamp).getHours();
+  return hour >= 22 || hour < 8;
+}
+function saveNextAutoTestAt(timestamp: number) {
+  autoTestNextRunAt.value = timestamp;
+  try { localStorage.setItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY, String(timestamp)); }
+  catch { showNotice('浏览器无法保存倒计时，刷新页面后将重新计时。', 'info'); }
+}
+async function checkAutoTest() {
+  autoTestNow.value = Date.now();
+  if (!autoTestEnabled.value || autoTestChecking || isAutoTestQuietTime(autoTestNow.value)) return;
+  if (autoTestNow.value < autoTestNextRunAt.value || !autoTestConfig.value || !prompt.value.trim() || loading.value) return;
+  autoTestChecking = true;
+  saveNextAutoTestAt(autoTestNow.value + AUTO_TEST_INTERVAL_MS);
+  try {
+    if (ownRun.value) await openRun(ownRun.value.id);
+    if (!autoTestEnabled.value || isAutoTestQuietTime(Date.now())) return;
+    if (ownRun.value || isRunning.value || loading.value) {
+      autoTestLastMessage.value = '本次跳过：当前任务尚未结束或状态未能确认。';
+      return;
+    }
+    const started = await generate(autoTestConfig.value);
+    autoTestLastMessage.value = started ? '上次自动测试已提交，结果见历史记录。' : '上次自动测试未提交：' + (notice.value?.text ?? '请检查模型配置。');
+  } finally { autoTestChecking = false; }
+}
 function scheduleAutoTest() {
   window.clearInterval(autoTestTimer);
   if (!autoTestEnabled.value) return;
-  autoTestTimer = window.setInterval(() => {
-    const hour = new Date().getHours();
-    if (hour >= 22 || hour < 8) return;
-    if (!autoTestConfig.value || !prompt.value.trim() || loading.value || ownRun.value || isRunning.value) return;
-    void generate(autoTestConfig.value);
-  }, AUTO_TEST_INTERVAL_MS);
+  autoTestNow.value = Date.now();
+  let saved = 0;
+  try { saved = Number(localStorage.getItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY)); } catch { /* Use an in-memory deadline when storage is unavailable. */ }
+  saveNextAutoTestAt(Number.isFinite(saved) && saved > 0 && saved <= autoTestNow.value + AUTO_TEST_INTERVAL_MS ? saved : autoTestNow.value + AUTO_TEST_INTERVAL_MS);
+  autoTestTimer = window.setInterval(() => { void checkAutoTest(); }, 1000);
+  void checkAutoTest();
 }
 function setAutoTestEnabled(enabled: boolean) {
   autoTestEnabled.value = enabled;
-  scheduleAutoTest();
-  try { localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(enabled)); }
+  autoTestLastMessage.value = '';
+  try {
+    localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(enabled));
+    localStorage.removeItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY);
+  }
   catch { showNotice('浏览器未能保存自动测试开关，刷新后会恢复默认。', 'info'); }
+  scheduleAutoTest();
 }
 async function generate(config: BrowserModelConfig | undefined) {
   if (!config) return showNotice('请先在设置中添加自己的模型配置。', 'error');
   if (!prompt.value.trim()) return showNotice('请先输入提示词。', 'error');
   if (loading.value || isRunning.value) return;
   loading.value = true;
+  let started = false;
   try {
     const requestId = crypto.randomUUID();
     const modelConfig = { group: config.group, baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model, protocol: config.protocol, stream: config.stream };
     const result = await api<{ id: string }>('/api/runs', { method: 'POST', body: JSON.stringify({ requestId, modelConfig, prompt: prompt.value }) });
+    started = true;
     rememberRun({ id: result.id, requestId });
     await openRun(result.id);
     await loadRunsOnly();
     showNotice('已开始生成。', 'success');
   } catch (error: any) { showNotice(error.message, 'error'); }
   finally { loading.value = false; }
+  return started;
 }
 async function stopGeneration() {
   if (!activeRunId.value || ownRun.value?.id !== activeRunId.value) return;
@@ -247,6 +295,10 @@ function removeConfig(config: ModelConfig) {
   } catch (error: any) { showNotice(error.message, 'error'); }
 }
 function syncLocalModels(event: StorageEvent) {
+  if (event.key === AUTO_TEST_NEXT_RUN_STORAGE_KEY && event.newValue) {
+    const timestamp = Number(event.newValue);
+    if (Number.isFinite(timestamp) && timestamp > 0) autoTestNextRunAt.value = timestamp;
+  }
   if (event.key === MODEL_STORAGE_KEY || event.key === null) {
     try { loadConfigs(); } catch (error: any) { showNotice(error.message, 'error'); }
   }
@@ -274,7 +326,7 @@ onUnmounted(() => { eventSource?.close(); window.clearTimeout(noticeTimer); wind
       <section class="composer card"><div class="composer-grid"><div class="model-field"><div class="field-label"><label for="model">使用模型</label><button class="small-link" @click="editConfig()">管理模型 ↗</button></div><div class="model-select-row"><select id="model" :value="selectedConfigId" @change="selectModel(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ configs.length ? '选择模型' : '请先添加模型' }}</option><optgroup v-for="item in groupedConfigs" :key="item.group" :label="item.group"><option v-for="config in item.configs" :key="config.id" :value="config.id">{{ config.group }} · {{ config.model }}</option><option v-if="!item.configs.length" :value="`new:${item.group}`">＋ 配置此分组</option></optgroup></select><button class="select-settings" aria-label="编辑当前模型" @click="editConfig(selectedConfig)">⚙</button></div></div><div class="prompt-field"><div class="field-label"><label for="prompt">你的提示词</label><span class="prompt-hint">描述页面、风格和交互</span></div><textarea id="prompt" v-model="prompt" rows="3" placeholder="例如：做一个小火龙在导弹上骑自行车的 2D SVG 动画，要有云朵、火焰和可以暂停的按钮。"></textarea></div><div class="composer-action"><button v-if="isRunning" class="stop-button" @click="stopGeneration">■ 停止</button><button v-else class="primary-button" :disabled="loading || !selectedConfig" @click="startGeneration"><span>{{ loading ? '准备中…' : '开始生成' }}</span><b>↗</b></button></div></div>
         <div class="auto-test-control">
           <label class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra</label>
-          <p>{{ !autoTestEnabled ? '自动测试已暂停。' : !autoTestConfig ? '请先配置 GRT-PRO稳定分组的 gpt-6-astra 模型。' : '已开启：10 分钟后开始，使用当前提示词；生成中跳过本次测试。' }} 每日 22:00 至次日 08:00 暂停自动测试（浏览器本地时间）。请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
+          <p aria-live="off">{{ autoTestStatus }} 每日 22:00 至次日 08:00 暂停自动测试（浏览器本地时间）。刷新不会重置倒计时。请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
         </div>
       </section>
       <section class="gallery-section"><div class="gallery-heading"><div><h1>历史记录</h1></div><span class="gallery-count">{{ runs.length }} 个页面</span><button v-if="adminConfigured && !isAdmin" class="admin-button" @click="openAdminLogin">管理员登录</button><div v-else-if="isAdmin" class="admin-session"><span>管理员</span><button @click="logoutAdmin">退出</button></div><button class="refresh-button" @click="loadRunsOnly">刷新 ↻</button></div><div v-if="!runs.length" class="empty-gallery card"><div class="empty-icon">◎</div><h2>还没有生成记录</h2><p>完成第一次生成后，页面预览会出现在这里。</p></div><div v-else class="gallery-grid"><article v-for="run in runs" :key="run.id" class="preview-card" :class="{ selected: selectedCardId === run.id }" @click="openRun(run.id)"><div class="preview-frame"><HtmlPreview v-if="details[run.id]?.html" :html="details[run.id].html!" /><div v-else-if="run.status === 'running'" class="card-loading"><div class="loader"></div><span>正在生成…</span></div><div v-else class="card-failed"><span>◌</span><small>暂无可用预览</small></div><span class="status-ribbon" :class="statusClass(run.status)"><i></i>{{ statusLabel(run.status) }}</span></div><div class="card-info"><div class="card-title">{{ promptPreview(run.prompt) }}</div><div class="card-meta"><span>{{ run.snapshot.group }} · {{ run.snapshot.model }}</span><button v-if="isAdmin" class="delete-button" :disabled="run.status === 'running'" @click.stop="deleteRun(run.id)">删除</button></div><div class="card-time">{{ formatTime(run.createdAt) }}</div></div></article></div></section>
