@@ -141,6 +141,22 @@ test('迁移保留旧历史，新增记录无需共享模型且只保存公开�
     assert.equal(store.getRun(run.id)?.status, 'interrupted');
     assert.equal(store.deleteRun(run.id), true);
     assert.equal(store.getRun(run.id), null);
+    store.close(); store = undefined;
+    rmSync(path);
+    store = new Store(path);
+    for (let index = 0; index < 32; index += 1) {
+      const created = store.createRun({ ...input, requestId: `keep-${index}` });
+      store.finishRun(created.id, { status: 'succeeded', rawOutput: `<html>${index}</html>`, html: `<html>${index}</html>`, elapsedMs: 1, usage: null, error: null });
+    }
+    store.close(); store = new Store(path);
+    const kept = store.listRuns(100);
+    const numbers = kept.items.map(item => item.number);
+    assert.equal(kept.total, 30);
+    assert.equal(kept.items.length, 30);
+    assert.equal(numbers[0] > numbers.at(-1)!, true);
+    assert.equal(numbers.includes('A0001'), false);
+    assert.equal(store.getRun(kept.items[0].id)?.html?.includes('html'), true);
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM runs').get()!.count, 30);
   } finally {
     legacy?.close(); store?.close();
     rmSync(directory, { recursive: true });

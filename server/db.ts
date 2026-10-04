@@ -74,6 +74,7 @@ export class Store {
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_number ON runs(run_number)');
     this.db.prepare("UPDATE runs SET status = 'interrupted', completed_at = COALESCE(completed_at, ?), error = COALESCE(error, '服务重启，中断了未完成任务。') WHERE status = 'running'").run(new Date().toISOString());
+    this.pruneRuns();
   }
 
   close() { this.db.close(); }
@@ -107,8 +108,8 @@ export class Store {
     );
   }
 
-  listRuns(limit = 50, offset = 0): RunPage {
-    const rows = this.db.prepare('SELECT * FROM runs ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as DbRow[];
+  listRuns(limit = 30, offset = 0): RunPage {
+    const rows = this.db.prepare('SELECT * FROM runs ORDER BY created_at DESC LIMIT ? OFFSET ?').all(Math.min(limit, 30), offset) as DbRow[];
     const total = Number((this.db.prepare('SELECT COUNT(*) AS count FROM runs').get() as DbRow).count);
     const active = this.db.prepare("SELECT * FROM runs WHERE status = 'running' ORDER BY created_at DESC LIMIT 1").get() as DbRow | undefined;
     return { items: rows.map(row => this.toRun(row, false)), total, activeRun: active ? this.toRun(active, false) : null };
@@ -116,6 +117,13 @@ export class Store {
 
   deleteRun(id: string) {
     return this.db.prepare("DELETE FROM runs WHERE id = ? AND status != 'running'").run(id).changes > 0;
+  }
+
+  pruneRuns(keep = 30) {
+    this.db.prepare(`DELETE FROM runs WHERE id NOT IN (
+      SELECT id FROM runs ORDER BY created_at DESC, id DESC LIMIT ?
+    )`).run(keep);
+    this.db.exec('VACUUM');
   }
 
   private toRun(row: DbRow, detail: true): RunDetail;

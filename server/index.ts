@@ -138,7 +138,7 @@ app.post('/api/admin/logout', async (request, reply) => {
 
 app.get('/api/runs', async request => {
   const query = request.query as any;
-  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+  const limit = Math.min(Math.max(Number(query.limit) || 30, 1), 30);
   const offset = Math.max(Number(query.offset) || 0, 0);
   return store.listRuns(limit, offset);
 });

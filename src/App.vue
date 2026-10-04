@@ -80,7 +80,7 @@ function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 async function hydrateDetails(items: RunSummary[]) { const results = await Promise.allSettled(items.map(item => api<RunDetail>(`/api/runs/${item.id}`))); results.forEach((result, index) => { if (result.status === 'fulfilled') details.value[items[index].id] = result.value; }); }
 async function loadRuns() {
-  const page = await api<RunPage>('/api/runs?limit=24');
+  const page = await api<RunPage>('/api/runs?limit=30');
   runs.value = page.items;
   await hydrateDetails(page.items);
   if (ownRun.value) await openRun(ownRun.value.id);
