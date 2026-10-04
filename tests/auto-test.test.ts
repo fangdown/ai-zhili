@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { computed, ref } from 'vue';
-import { MODEL_GROUPS, type BrowserModelConfig } from '../shared/types.ts';
+import { CUSTOM_MODEL_GROUP, MODEL_GROUPS, fixedGroupModels, isCustomModelGroup, isFixedModelGroup, type BrowserModelConfig } from '../shared/types.ts';
 import { MODEL_STORAGE_KEY, readLocalModels } from '../src/localModels.ts';
 
 const file = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8');
@@ -13,9 +13,9 @@ const script = file.slice(file.indexOf('>', file.indexOf('<script')) + 1, file.i
 const expose = ';globalThis.state = { ownRun, activeRunId, details, setAutoTestEnabled, startGeneration, selectedConfigId };';
 const compiled = ts.transpileModule(script + expose, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 const target: BrowserModelConfig = {
-  id: 'target', name: 'GRT-PRO稳定', group: 'GRT-PRO稳定', model: 'gpt-6-astra',
+  id: 'manual', name: '自定义', group: '自定义', model: 'my-model',
   baseUrl: 'https://provider.example/v1', apiKey: 'TEST_ONLY', protocol: 'responses', stream: true,
-  isDefault: false, hasKey: true, keyMask: '****', createdAt: '2026-09-27T00:00:00.000Z', updatedAt: '2026-09-27T00:00:00.000Z',
+  isDefault: true, hasKey: true, keyMask: '****', createdAt: '2026-09-27T00:00:00.000Z', updatedAt: '2026-09-27T00:00:00.000Z',
 };
 const minute = 60_000;
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
@@ -26,13 +26,13 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
   let timer: { callback: () => void; due: number; interval: number } | undefined;
   const requests: any[] = [];
   const storage = { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => saved.set(key, value), removeItem: (key: string) => saved.delete(key) };
-  if (!saved.has(MODEL_STORAGE_KEY)) storage.setItem(MODEL_STORAGE_KEY, JSON.stringify([target, { ...target, id: 'manual', group: 'GPT-企业级', isDefault: true }]));
+  if (!saved.has(MODEL_STORAGE_KEY)) storage.setItem(MODEL_STORAGE_KEY, JSON.stringify([target, { ...target, id: 'legacy-fixed', group: 'GRT-PRO稳定', model: 'gpt-6-astra', isDefault: false }]));
   class Clock extends Date {
     constructor(value?: string | number) { super(value ?? clock.now); }
     static now() { return clock.now; }
   }
   const context: any = {
-    ref, computed, MODEL_GROUPS, MODEL_STORAGE_KEY, Date: Clock, Headers, crypto, localStorage: storage,
+    ref, computed, MODEL_GROUPS, CUSTOM_MODEL_GROUP, fixedGroupModels, isCustomModelGroup, isFixedModelGroup, MODEL_STORAGE_KEY, Date: Clock, Headers, crypto, localStorage: storage,
     readLocalModels: () => readLocalModels(storage),
     onMounted: (fn: () => Promise<void>) => { mounted = fn; },
     onUnmounted: (fn: () => void) => { unmounted = fn; },
@@ -43,6 +43,15 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
     fetch: async (url: string, options?: RequestInit) => {
       let data: unknown;
       if (url === '/api/admin/session') data = { configured: false, authenticated: false };
+      else if (url === '/api/model-groups') data = {
+        groups: [
+          { group: 'GRT-PRO稳定', configured: true, models: [{ model: 'gpt-6-astra', protocol: 'responses' }] },
+          { group: 'GPT-企业级', configured: true, models: [{ model: 'gpt-6-astra', protocol: 'responses' }] },
+          { group: 'GPT-官key', configured: false, models: [{ model: 'gpt-6-astra', protocol: 'responses' }] },
+          { group: 'GPT-福利', configured: true, models: [{ model: 'gpt-5.6-sol', protocol: 'responses' }] },
+          { group: 'claude-opus-5-5', configured: true, models: [{ model: 'claude-opus-5-5', protocol: 'anthropic-messages' }] },
+        ],
+      };
       else if (url === '/api/runs' && options?.method === 'POST') {
         requests.push(JSON.parse(String(options.body)));
         data = { id: 'run-' + requests.length };
@@ -50,7 +59,7 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
       else if (url.startsWith('/api/runs/')) data = {
         id: url.split('/').at(-1), prompt: '测试', constraint: '', rawOutput: '', html: null, status: 'succeeded',
         createdAt: new Date(clock.now).toISOString(), completedAt: new Date(clock.now).toISOString(), elapsedMs: 100,
-        usage: null, error: null, hasHtml: false, snapshot: { group: target.group, model: target.model, protocol: target.protocol, stream: true, timeoutMs: 600000 },
+        usage: null, error: null, hasHtml: false, snapshot: { group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses', stream: true, timeoutMs: 600000 },
       };
       else throw new Error('Unexpected URL: ' + url);
       return new Response(JSON.stringify(data), { status: options?.method === 'POST' ? 202 : 200 });
@@ -81,6 +90,7 @@ test('刷新页面不重置剩余等待时间，仍按原定时间使用固定�
   assert.equal(second.requests.length, 1);
   assert.equal(second.requests[0].modelConfig.group, 'GRT-PRO稳定');
   assert.equal(second.requests[0].modelConfig.model, 'gpt-6-astra');
+  assert.equal(second.requests[0].modelConfig.apiKey, undefined);
   assert.equal(second.state.selectedConfigId.value, 'manual');
   second.close();
 });
@@ -128,8 +138,10 @@ test('暂停后刷新页面也不生成，手动生成仍使用所选模型', as
   const second = await browser(clock, first.saved);
   await second.advance(20 * minute);
   assert.equal(second.requests.length, 0);
+  second.state.selectedConfigId.value = 'fixed:GPT-企业级:gpt-6-astra';
   await second.state.startGeneration();
   assert.equal(second.requests.length, 1);
   assert.equal(second.requests[0].modelConfig.group, 'GPT-企业级');
+  assert.equal(second.requests[0].modelConfig.apiKey, undefined);
   second.close();
 });

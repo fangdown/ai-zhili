@@ -8,6 +8,7 @@ import { AppError } from './errors.js';
 import { generate } from './provider.js';
 import { MAX_OUTPUT_BYTES, OUTPUT_CONSTRAINT, RUN_TIMEOUT_MS, type CreateRunInput, type GenerationModel } from '../shared/types.js';
 import { parseGenerationModel, publicModelSnapshot } from './modelInput.js';
+import { fixedGroupCatalog } from './groupKeys.js';
 import { createAdminAuth } from './adminAuth.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -104,6 +105,10 @@ app.addHook('onSend', async (_request, reply) => {
   reply.header('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'self' https://api.opens.chat; object-src 'none'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
 });
 
+app.get('/api/model-groups', async (_request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  return { groups: fixedGroupCatalog() };
+});
 app.route({ method: ['GET', 'POST', 'PATCH', 'DELETE'], url: '/api/model-configs', handler: async () => fail(410, '模型配置仅保存在各自浏览器中。') });
 app.route({ method: ['GET', 'POST', 'PATCH', 'DELETE'], url: '/api/model-configs/:id', handler: async () => fail(410, '模型配置仅保存在各自浏览器中。') });
 

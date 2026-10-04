@@ -15,7 +15,7 @@ function browserStorage() {
 }
 
 const config: ModelInput = {
-  name: '本机配置', group: 'GRT-PRO稳定', baseUrl: 'https://provider.example/v1', model: 'example-model',
+  name: '本机配置', group: '自定义', baseUrl: 'https://provider.example/v1', model: 'example-model',
   protocol: 'chat-completions', stream: true, isDefault: true, apiKey: 'TEST_ONLY_FAKE_API_KEY',
 };
 
@@ -27,7 +27,8 @@ test('不同浏览器的模型配置相互隔离，编辑留空保留 Key', () =
   assert.deepEqual(readLocalModels(second), []);
   const edited = saveLocalModel({ ...config, name: '新名称', apiKey: '' }, saved.id, first);
   assert.equal(edited.apiKey, config.apiKey);
-  saveLocalModel({ ...config, group: 'GPT-福利', name: undefined }, null, first);
+  assert.throws(() => saveLocalModel({ ...config, group: 'GRT-PRO稳定' }, null, first), /服务器保存/);
+  saveLocalModel({ ...config, model: 'another-model', name: '第二个自定义' }, null, first);
   assert.equal(readLocalModels(first).length, 2);
   saveLocalModel({ ...config, name: '另一浏览器' }, null, second);
   deleteLocalModel(saved.id, first);
@@ -57,6 +58,33 @@ test('支持 Claude 原生 Messages 协议配置', () => {
   const parsed = parseGenerationModel({ ...config, protocol: 'anthropic-messages' });
   assert.equal(parsed.protocol, 'anthropic-messages');
   assert.equal(publicModelSnapshot(parsed).protocol, 'anthropic-messages');
+});
+
+test('固定分组使用服务器 Key，忽略浏览器提交的地址和 Key', () => {
+  const previous = {
+    grt: process.env.MODEL_KEY_GRT_PRO,
+    claude: process.env.MODEL_KEY_CLAUDE_OPUS_5_5,
+  };
+  process.env.MODEL_KEY_GRT_PRO = 'SERVER_ONLY_GRT_KEY';
+  process.env.MODEL_KEY_CLAUDE_OPUS_5_5 = 'SERVER_ONLY_CLAUDE_KEY';
+  try {
+    const parsed = parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses', apiKey: 'CLIENT_KEY', baseUrl: 'https://evil.example/v1' });
+    assert.equal(parsed.apiKey, 'SERVER_ONLY_GRT_KEY');
+    assert.equal(parsed.baseUrl, 'https://api.opens.chat/v1');
+    assert.equal(parsed.stream, true);
+    const claude = parseGenerationModel({ group: 'claude-opus-5-5', model: 'claude-opus-5-5', protocol: 'anthropic-messages' });
+    assert.equal(claude.apiKey, 'SERVER_ONLY_CLAUDE_KEY');
+    assert.equal(claude.protocol, 'anthropic-messages');
+    assert.equal(JSON.stringify(publicModelSnapshot(claude)).includes('SERVER_ONLY_CLAUDE_KEY'), false);
+    assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'not-a-model', protocol: 'responses' }));
+    delete process.env.MODEL_KEY_GRT_PRO;
+    assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses' }));
+  } finally {
+    if (previous.grt === undefined) delete process.env.MODEL_KEY_GRT_PRO;
+    else process.env.MODEL_KEY_GRT_PRO = previous.grt;
+    if (previous.claude === undefined) delete process.env.MODEL_KEY_CLAUDE_OPUS_5_5;
+    else process.env.MODEL_KEY_CLAUDE_OPUS_5_5 = previous.claude;
+  }
 });
 
 test('迁移保留旧历史，新增记录无需共享模型且只保存公开快照', () => {

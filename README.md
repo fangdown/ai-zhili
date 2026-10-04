@@ -39,7 +39,7 @@ docker compose up -d --build
 - Docker 仅绑定 `127.0.0.1:3200`，由宿主机 Nginx 提供 HTTPS 和 SSE 转发。
 - Nginx 模板：`deploy/nginx/zhili.opens.chat.conf`，安装到 `/etc/nginx/sites-available/zhili.opens.chat`。
 - TLS 证书：`/etc/letsencrypt/live/zhili.opens.chat/`，由 Certbot 定时续期，续期后自动重载 Nginx。
-- 模型配置仍由每个浏览器保存，不随服务器部署或更新上传。
+- 固定分组的 API Key 写在服务器 `.env`，不随浏览器保存。自定义分组仍由每个浏览器保存。
 
 在服务器更新：
 
@@ -66,10 +66,10 @@ unset ADMIN_PASSWORD
 
 ## 接口
 
-每个浏览器使用自己的模型配置，地址、Key、模型名称保存在该网站的 localStorage 中，不与其他浏览器共享。同一浏览器配置文件、同一网站地址下的标签页共用本地配置；换浏览器、换网站地址或清除网站数据后需要重新填写。
+固定分组（GRT-PRO稳定、GPT-企业级、GPT-官key、GPT-福利、claude-opus-5-5）的 API Key 只放在服务器 `.env`：`MODEL_KEY_GRT_PRO`、`MODEL_KEY_GPT_ENTERPRISE`、`MODEL_KEY_GPT_OFFICIAL`、`MODEL_KEY_GPT_WELFARE`、`MODEL_KEY_CLAUDE_OPUS_5_5`。浏览器只提交分组和模型名称，后端临时注入对应 Key，不把 Key 或接口地址写入历史快照，也不返回给浏览器。
 
-点击生成时，只把当前选中的接口地址、Key、模型和调用选项提交给后端，在任务内存中临时使用；不再新增服务器模型配置，不把接口地址或 Key 写入历史快照。公共历史只保留模型名称、协议、流式选项等生成信息。不要在配置名称、模型名称或提示词中粘贴 Key。
+自定义分组仍由每个浏览器保存地址、Key 和模型名称，不与其他浏览器共享。换浏览器、换网站地址或清除网站数据后需要重新填写。点击生成时，只把当前选中的自定义配置提交给后端，在任务内存中临时使用。不要在配置名称、模型名称或提示词中粘贴 Key。
 
 后端提供生成任务、SSE 增量事件、共享历史、取消和 HTML 下载接口。历史暂不允许删除；仅发起任务的浏览器持有停止该任务所需的请求凭证。旧 `/api/model-configs` 接口全部关闭，返回 410，旧的 `configId` 调用方式不再支持。
 
-升级时保留已有历史记录，自动将历史表的旧模型关联改为可空。旧服务器配置作为封存数据保留，不再读取、返回或用于生成，也不会自动导入任何浏览器；旧 `.env` 和 `APP_KEY` 保留即可。使用者需在自己的浏览器重新添加模型配置。
+升级时保留已有历史记录。旧 `.env` 和 `APP_KEY` 保留，并补上固定分组的 Key。浏览器里以前保存的固定分组配置不再使用。

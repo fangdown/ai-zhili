@@ -9,7 +9,7 @@ try {
     `APP_KEY=${randomBytes(32).toString('hex')}`,
     '',
   ].join('\n'), { flag: 'wx', mode: 0o600 });
-  console.log('已生成 .env。模型配置保存在各自浏览器，服务器仅保存历史记录。');
+  console.log('已生成 .env。固定分组的 Key 写入服务器 .env；自定义分组仍只保存在各自浏览器。');
 } catch (error) {
   if (error.code === 'EEXIST') console.log('.env 已存在，保留现有配置。');
   else throw error;

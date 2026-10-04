@@ -1,7 +1,35 @@
 export type Protocol = 'chat-completions' | 'responses' | 'anthropic-messages';
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-export const MODEL_GROUPS = ['GRT-PRO稳定', 'GPT-企业级', 'GPT-官key', 'GPT-福利', '自定义'] as const;
+export const MODEL_GROUPS = ['GRT-PRO稳定', 'GPT-企业级', 'GPT-官key', 'GPT-福利', 'claude-opus-5-5', '自定义'] as const;
 export type ModelGroup = typeof MODEL_GROUPS[number];
+export const CUSTOM_MODEL_GROUP = '自定义' as const;
+export type FixedModelGroup = Exclude<ModelGroup, typeof CUSTOM_MODEL_GROUP>;
+
+export interface FixedGroupModel {
+  model: string;
+  protocol: Protocol;
+}
+
+/** Built-in groups. Their API keys stay on the server; the custom group does not. */
+export const FIXED_GROUP_MODELS: Record<FixedModelGroup, readonly FixedGroupModel[]> = {
+  'GRT-PRO稳定': [{ model: 'gpt-6-astra', protocol: 'responses' }],
+  'GPT-企业级': [{ model: 'gpt-6-astra', protocol: 'responses' }],
+  'GPT-官key': [{ model: 'gpt-6-astra', protocol: 'responses' }],
+  'GPT-福利': [{ model: 'gpt-5.6-sol', protocol: 'responses' }],
+  'claude-opus-5-5': [{ model: 'claude-opus-5-5', protocol: 'anthropic-messages' }],
+};
+
+export function isCustomModelGroup(group: ModelGroup): group is typeof CUSTOM_MODEL_GROUP {
+  return group === CUSTOM_MODEL_GROUP;
+}
+
+export function isFixedModelGroup(group: ModelGroup): group is FixedModelGroup {
+  return !isCustomModelGroup(group);
+}
+
+export function fixedGroupModels(group: ModelGroup): readonly FixedGroupModel[] {
+  return isFixedModelGroup(group) ? FIXED_GROUP_MODELS[group] : [];
+}
 
 export interface ModelInput {
   name?: string;

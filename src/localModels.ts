@@ -1,4 +1,4 @@
-import { MODEL_GROUPS, type BrowserModelConfig, type ModelInput } from '../shared/types';
+import { CUSTOM_MODEL_GROUP, MODEL_GROUPS, isCustomModelGroup, type BrowserModelConfig, type ModelInput } from '../shared/types';
 
 export const MODEL_STORAGE_KEY = 'ai-zhili.models.v1';
 
@@ -25,6 +25,8 @@ export function saveLocalModel(input: ModelInput, id: string | null, storage: Pi
   const configs = readLocalModels(storage);
   const existing = id ? configs.find(item => item.id === id) : undefined;
   if (id && !existing) throw new Error('本地模型配置不存在，请重新选择。');
+  if (!MODEL_GROUPS.includes(input.group)) throw new Error('模型分组不受支持。');
+  if (!isCustomModelGroup(input.group)) throw new Error('固定分组的 Key 由服务器保存，不能写入浏览器。');
   const name = input.name?.trim() || input.group;
   const model = input.model.trim();
   const baseUrl = input.baseUrl.trim();
@@ -32,7 +34,6 @@ export function saveLocalModel(input: ModelInput, id: string | null, storage: Pi
   if (name.length > 80) throw new Error('模型分组名称过长。');
   if (!model || model.length > 180) throw new Error('请输入模型名称，最多 180 个字符。');
   if (!apiKey || apiKey.length > 10_000 || /[\r\n]/.test(apiKey)) throw new Error('请输入有效的 API Key。');
-  if (!MODEL_GROUPS.includes(input.group)) throw new Error('模型分组不受支持。');
   if (!['chat-completions', 'responses', 'anthropic-messages'].includes(input.protocol)) throw new Error('接口协议不受支持。');
   let url: URL;
   try { url = new URL(baseUrl); } catch { throw new Error('请输入有效的 Base URL。'); }
@@ -41,7 +42,7 @@ export function saveLocalModel(input: ModelInput, id: string | null, storage: Pi
   }
   const now = new Date().toISOString();
   const saved: BrowserModelConfig = {
-    id: existing?.id ?? crypto.randomUUID(), name, group: input.group, baseUrl, model, apiKey,
+    id: existing?.id ?? crypto.randomUUID(), name, group: CUSTOM_MODEL_GROUP, baseUrl, model, apiKey,
     protocol: input.protocol, stream: input.stream, isDefault: input.isDefault || configs.length === 0,
     hasKey: true, keyMask: '••••••••', createdAt: existing?.createdAt ?? now, updatedAt: now,
   };
