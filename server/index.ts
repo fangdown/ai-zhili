@@ -214,9 +214,9 @@ app.post('/api/runs', async (request, reply) => {
   const body = (request.body ?? {}) as Partial<CreateRunInput>;
   const requestId = requireString(body.requestId, '请求 ID', 100);
   const prompt = requireString(body.prompt, '提示词', 100_000);
-  if (!autoTest.consumeClaim(requestId) && prompt.trim() === autoTest.prompt().trim()) {
-    fail(409, '自动测试由服务器计时，请刷新页面。');
-  }
+  const modelInput = body.modelConfig && typeof body.modelConfig === 'object' ? body.modelConfig as unknown as Record<string, unknown> : {};
+  const staleAutoTest = modelInput.group === 'GRT-PRO稳定' && modelInput.model === 'gpt-6-astra' && prompt.trim() === autoTest.prompt().trim();
+  if (staleAutoTest && !autoTest.consumeClaim(requestId)) fail(409, '自动测试由服务器计时，请刷新页面。');
   const modelConfig = parseGenerationModel(body.modelConfig, { allowFixedGroups: adminAuth.isAuthenticated(request.headers.cookie) });
   delete body.modelConfig;
   const run = store.createRun({ requestId, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot: publicModelSnapshot(modelConfig), sourceRunId: body.sourceRunId });
