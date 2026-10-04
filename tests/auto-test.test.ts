@@ -36,6 +36,7 @@ test('服务器按保存的时间每 10 分钟只生成一次', async () => {
     await scheduler.tick();
     await scheduler.tick();
     assert.deepEqual(prompts, ['默认提示词']);
+    assert.equal(scheduler.consumeClaim('不是这次的凭证'), false);
     const reopened = createAutoTestScheduler({
       store, now: () => clock.now, defaultPrompt: '默认提示词',
       startRun: prompt => { prompts.push(prompt); },
@@ -86,5 +87,32 @@ test('已有任务进行中时跳过本次，不重复提交', async () => {
     await scheduler.tick();
     assert.deepEqual(prompts, []);
     assert.match(scheduler.state().lastMessage, /尚未结束/);
+    const postponed = scheduler.state().nextRunAt ?? 0;
+    assert.ok(postponed >= clock.now + AUTO_TEST_INTERVAL_MS);
+    store.finishRun(busy.id, { status: 'succeeded', rawOutput: '完成', html: null, elapsedMs: 1, usage: null, error: null });
+    clock.now += 60_000;
+    await scheduler.tick();
+    assert.deepEqual(prompts, []);
+    clock.now = postponed;
+    await scheduler.tick();
+    assert.deepEqual(prompts, ['默认提示词']);
+  } finally { close(); }
+});
+
+test('自动测试凭证只能换取一次提交资格', async () => {
+  const clock = { now: Date.parse('2026-10-04T04:00:00Z') };
+  const { store, close } = memoryStore();
+  const claims: string[] = [];
+  try {
+    const scheduler = createAutoTestScheduler({
+      store, now: () => clock.now, defaultPrompt: '默认提示词',
+      startRun: (_prompt, claim) => { claims.push(claim); },
+    });
+    await scheduler.tick();
+    clock.now += AUTO_TEST_INTERVAL_MS;
+    await scheduler.tick();
+    assert.equal(claims.length, 1);
+    assert.equal(scheduler.consumeClaim(claims[0]), true);
+    assert.equal(scheduler.consumeClaim(claims[0]), false);
   } finally { close(); }
 });

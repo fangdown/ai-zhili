@@ -6,6 +6,7 @@ const ENABLED_KEY = 'auto_test_enabled';
 const NEXT_KEY = 'auto_test_next_run_at';
 const PROMPT_KEY = 'auto_test_prompt';
 const LAST_KEY = 'auto_test_last_message';
+const CLAIM_KEY = 'auto_test_claim';
 
 export interface AutoTestState {
   enabled: boolean;
@@ -27,7 +28,7 @@ export function createAutoTestScheduler(options: {
   now?: () => number;
   intervalMs?: number;
   defaultPrompt: string;
-  startRun: (prompt: string) => Promise<void> | void;
+  startRun: (prompt: string, claim: string) => Promise<void> | void;
 }) {
   const now = options.now ?? Date.now;
   const intervalMs = options.intervalMs ?? AUTO_TEST_INTERVAL_MS;
@@ -59,6 +60,11 @@ export function createAutoTestScheduler(options: {
     if (value) options.store.setMeta(NEXT_KEY, String(now() + intervalMs));
   }
   function setPrompt(value: string) { options.store.setMeta(PROMPT_KEY, value); }
+  function consumeClaim(claim: string) {
+    if (!claim || options.store.getMeta(CLAIM_KEY) !== claim) return false;
+    options.store.setMeta(CLAIM_KEY, '');
+    return true;
+  }
 
   async function tick() {
     if (ticking) return;
@@ -70,6 +76,7 @@ export function createAutoTestScheduler(options: {
     try {
       const active = options.store.db.prepare("SELECT 1 FROM runs WHERE status = 'running' LIMIT 1").get();
       if (active) {
+        options.store.setMeta(NEXT_KEY, String(current + intervalMs));
         options.store.setMeta(LAST_KEY, '本次跳过：当前任务尚未结束。');
         return;
       }
@@ -80,7 +87,9 @@ export function createAutoTestScheduler(options: {
         options.store.setMeta(LAST_KEY, '本次跳过：没有提示词。');
         return;
       }
-      await options.startRun(text);
+      const claim = crypto.randomUUID();
+      options.store.setMeta(CLAIM_KEY, claim);
+      await options.startRun(text, claim);
       options.store.setMeta(LAST_KEY, '上次自动测试已提交。');
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动测试未能开始。';
@@ -90,5 +99,5 @@ export function createAutoTestScheduler(options: {
     }
   }
 
-  return { state, setEnabled, setPrompt, prompt, tick };
+  return { state, setEnabled, setPrompt, prompt, tick, consumeClaim };
 }

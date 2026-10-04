@@ -187,9 +187,9 @@ app.get('/api/runs/:id/download', async (request, reply) => {
   return run.html;
 });
 
-async function startServerRun(prompt: string, modelConfig: GenerationModel) {
+async function startServerRun(prompt: string, modelConfig: GenerationModel, claim: string) {
   const snapshot = publicModelSnapshot(modelConfig);
-  const run = store.createRun({ requestId: crypto.randomUUID(), prompt, constraintText: OUTPUT_CONSTRAINT, snapshot });
+  const run = store.createRun({ requestId: claim, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot });
   if (!tasks.has(run.id) && run.status === 'running') {
     tasks.set(run.id, { controller: new AbortController(), subscribers: new Set() });
     runTask(run.id, modelConfig).catch(() => undefined);
@@ -200,12 +200,12 @@ async function startServerRun(prompt: string, modelConfig: GenerationModel) {
 const autoTest = createAutoTestScheduler({
   store,
   defaultPrompt: AUTO_TEST_PROMPT,
-  startRun: async prompt => {
+  startRun: async (prompt, claim) => {
     const modelConfig = parseGenerationModel(
       { group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses' },
       { allowFixedGroups: true },
     );
-    await startServerRun(prompt, modelConfig);
+    await startServerRun(prompt, modelConfig, claim);
   },
 });
 setInterval(() => { autoTest.tick().catch(() => undefined); }, 5_000);
@@ -214,6 +214,9 @@ app.post('/api/runs', async (request, reply) => {
   const body = (request.body ?? {}) as Partial<CreateRunInput>;
   const requestId = requireString(body.requestId, '请求 ID', 100);
   const prompt = requireString(body.prompt, '提示词', 100_000);
+  if (!autoTest.consumeClaim(requestId) && prompt.trim() === autoTest.prompt().trim()) {
+    fail(409, '自动测试由服务器计时，请刷新页面。');
+  }
   const modelConfig = parseGenerationModel(body.modelConfig, { allowFixedGroups: adminAuth.isAuthenticated(request.headers.cookie) });
   delete body.modelConfig;
   const run = store.createRun({ requestId, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot: publicModelSnapshot(modelConfig), sourceRunId: body.sourceRunId });
