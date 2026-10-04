@@ -157,6 +157,11 @@ test('迁移保留旧历史，新增记录无需共享模型且只保存公开�
     assert.equal(numbers.includes('A0001'), false);
     assert.equal(store.getRun(kept.items[0].id)?.html?.includes('html'), true);
     assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM runs').get()!.count, 30);
+    const extra = store.createRun({ ...input, requestId: 'after-limit' });
+    store.finishRun(extra.id, { status: 'failed', rawOutput: '', html: null, elapsedMs: 1, usage: null, error: '失败' });
+    store.pruneRuns();
+    assert.equal(store.listRuns().total, 30);
+    assert.equal(store.getRun(extra.id)?.number, store.listRuns().items[0].number);
   } finally {
     legacy?.close(); store?.close();
     rmSync(directory, { recursive: true });

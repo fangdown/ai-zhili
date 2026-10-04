@@ -81,12 +81,14 @@ async function runTask(runId: string, modelConfig: GenerationModel) {
     const status = invalid ? 'failed' : 'succeeded';
     const error = invalid ? (html ? '响应没有返回完整 HTML 文档。' : '模型返回了空内容。') : null;
     store.finishRun(runId, { status, rawOutput: output, html: invalid ? null : html, elapsedMs: Date.now() - started, usage: result.usage, error });
+    store.pruneRuns();
     publish(runId, 'done', { status, elapsedMs: Date.now() - started, error, usage: result.usage });
   } catch (error: any) {
     const aborted = task.controller.signal.aborted;
     const message = task.controller.signal.reason instanceof Error ? task.controller.signal.reason.message : (error instanceof AppError ? error.message : '模型请求失败，请检查自己的模型配置。');
     const status = aborted && message.includes('停止') ? 'cancelled' : 'failed';
     store.finishRun(runId, { status, rawOutput: output, html: null, elapsedMs: Date.now() - started, usage: null, error: message });
+    store.pruneRuns();
     publish(runId, 'done', { status, elapsedMs: Date.now() - started, error: message, usage: null });
   } finally {
     modelConfig.apiKey = '';

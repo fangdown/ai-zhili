@@ -74,7 +74,7 @@ export class Store {
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_number ON runs(run_number)');
     this.db.prepare("UPDATE runs SET status = 'interrupted', completed_at = COALESCE(completed_at, ?), error = COALESCE(error, '服务重启，中断了未完成任务。') WHERE status = 'running'").run(new Date().toISOString());
-    this.pruneRuns();
+    this.pruneRuns(30, true);
   }
 
   close() { this.db.close(); }
@@ -119,11 +119,11 @@ export class Store {
     return this.db.prepare("DELETE FROM runs WHERE id = ? AND status != 'running'").run(id).changes > 0;
   }
 
-  pruneRuns(keep = 30) {
-    this.db.prepare(`DELETE FROM runs WHERE id NOT IN (
+  pruneRuns(keep = 30, vacuum = false) {
+    this.db.prepare(`DELETE FROM runs WHERE status != 'running' AND id NOT IN (
       SELECT id FROM runs ORDER BY created_at DESC, id DESC LIMIT ?
     )`).run(keep);
-    this.db.exec('VACUUM');
+    if (vacuum) this.db.exec('VACUUM');
   }
 
   private toRun(row: DbRow, detail: true): RunDetail;
