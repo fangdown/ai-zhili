@@ -119,6 +119,15 @@ export class Store {
     return this.db.prepare("DELETE FROM runs WHERE id = ? AND status != 'running'").run(id).changes > 0;
   }
 
+  getMeta(key: string) {
+    const row = this.db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key) as DbRow | undefined;
+    return row ? String(row.value) : null;
+  }
+
+  setMeta(key: string, value: string) {
+    this.db.prepare('INSERT INTO app_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+  }
+
   pruneRuns(keep = 30, vacuum = false) {
     this.db.prepare(`DELETE FROM runs WHERE status != 'running' AND id NOT IN (
       SELECT id FROM runs ORDER BY created_at DESC, id DESC LIMIT ?

@@ -107,6 +107,20 @@ app.addHook('onSend', async (_request, reply) => {
   reply.header('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'self' https://api.opens.chat; object-src 'none'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
 });
 
+app.get('/api/auto-test', async (request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  requireAdmin(request);
+  return { enabled: store.getMeta('auto_test_enabled') !== 'false' };
+});
+app.post('/api/auto-test', async request => {
+  requireSameOrigin(request);
+  requireAdmin(request);
+  const enabled = (request.body as { enabled?: unknown } | null)?.enabled;
+  if (typeof enabled !== 'boolean') fail(400, '自动测试开关无效。');
+  store.setMeta('auto_test_enabled', String(enabled));
+  return { enabled };
+});
+
 app.get('/api/model-groups', async (request, reply) => {
   reply.header('Cache-Control', 'no-store');
   if (!adminAuth.isAuthenticated(request.headers.cookie)) return { groups: [] };

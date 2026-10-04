@@ -43,6 +43,11 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
     fetch: async (url: string, options?: RequestInit) => {
       let data: unknown;
       if (url === '/api/admin/session') data = { configured: true, authenticated: true };
+      else if (url === '/api/auto-test' && options?.method === 'POST') {
+        const body = JSON.parse(String(options.body));
+        saved.set('server-auto-test', String(body.enabled));
+        data = { enabled: body.enabled };
+      } else if (url === '/api/auto-test') data = { enabled: saved.get('server-auto-test') !== 'false' };
       else if (url === '/api/model-groups') data = {
         groups: [
           { group: 'GRT-PRO稳定', configured: true, models: [{ model: 'gpt-6-astra', protocol: 'responses' }] },
@@ -128,10 +133,11 @@ test('23点后不补发，次日八点恢复自动生成', async () => {
   app.close();
 });
 
-test('暂停后刷新页面也不生成，手动生成仍使用所选模型', async () => {
+test('管理员暂停后刷新页面也不生成，手动生成仍使用所选模型', async () => {
   const clock = { now: new Date(2026, 8, 27, 20).valueOf() };
   const first = await browser(clock);
-  first.state.setAutoTestEnabled(false);
+  await first.state.setAutoTestEnabled(false);
+  assert.equal(first.saved.get('server-auto-test'), 'false');
   first.close();
   const second = await browser(clock, first.saved);
   await second.advance(20 * minute);

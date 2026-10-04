@@ -24,8 +24,7 @@ const adminLoading = ref(false);
 const ownRun = ref<BrowserRun | null>(null);
 const ACTIVE_RUN_STORAGE_KEY = 'ai-zhili.active-run.v1';
 const LEGACY_ACTIVE_RUN_STORAGE_KEY = 'html-workbench.active-run.v1';
-const AUTO_TEST_STORAGE_KEY = 'ai-zhili.auto-test.v1';
-const AUTO_TEST_NEXT_RUN_STORAGE_KEY = 'ai-zhili.auto-test.next-run.v1';
+  const AUTO_TEST_NEXT_RUN_STORAGE_KEY = 'ai-zhili.auto-test.next-run.v1';
 const AUTO_TEST_INTERVAL_MS = 10 * 60 * 1000;
 const autoTestEnabled = ref(true);
 const autoTestNow = ref(Date.now.call(Date));
@@ -58,7 +57,7 @@ const activeRun = computed(() => activeRunId.value ? details.value[activeRunId.v
 const isRunning = computed(() => activeRun.value?.status === 'running');
 const autoTestStatus = computed(() => {
   if (!isAdmin.value) return '管理员登录后才会自动测试 GRT-PRO稳定。';
-  if (!autoTestEnabled.value) return '自动测试已暂停。';
+  if (!autoTestEnabled.value) return '管理员已暂停自动测试。';
   if (!autoTestOption.value) return '服务器尚未配置 GRT-PRO稳定分组的 API Key。';
   if (!prompt.value.trim()) return '请先填写提示词。';
   if (isAutoTestQuietTime(autoTestNow.value)) return '已暂停，08:00 后恢复自动测试。';
@@ -215,15 +214,21 @@ function scheduleAutoTest() {
   autoTestTimer = window.setInterval(() => { void checkAutoTest(); }, 1000);
   void checkAutoTest();
 }
-function setAutoTestEnabled(enabled: boolean) {
+async function setAutoTestEnabled(enabled: boolean) {
+  if (!isAdmin.value) return;
+  const previous = autoTestEnabled.value;
   autoTestEnabled.value = enabled;
   autoTestLastMessage.value = '';
   try {
-    localStorage.setItem(AUTO_TEST_STORAGE_KEY, String(enabled));
-    localStorage.removeItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY);
+    await api('/api/auto-test', { method: 'POST', body: JSON.stringify({ enabled }) });
+    try { localStorage.removeItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY); } catch { /* The next schedule starts a fresh countdown. */ }
+    scheduleAutoTest();
+    showNotice(enabled ? '已恢复每 10 分钟自动测试。' : '已暂停自动测试。', 'info');
+  } catch (error: any) {
+    autoTestEnabled.value = previous;
+    if (error.message === '请先登录管理员。') isAdmin.value = false;
+    showNotice(error.message, 'error');
   }
-  catch { showNotice('浏览器未能保存自动测试开关，刷新后会恢复默认。', 'info'); }
-  scheduleAutoTest();
 }
 async function generate(option: PickerOption | undefined) {
   if (!option) return showNotice('请先选择模型。', 'error');
@@ -270,6 +275,9 @@ async function loginAdmin() {
     isAdmin.value = true;
     closeAdminLogin();
     await loadFixedGroups();
+    const setting = await api<{ enabled: boolean }>('/api/auto-test');
+    autoTestEnabled.value = setting.enabled;
+    scheduleAutoTest();
     showNotice('管理员登录成功。', 'success');
   } catch (error: any) { showNotice(error.message, 'error'); }
   finally { adminLoading.value = false; }
@@ -278,7 +286,9 @@ async function logoutAdmin() {
   try {
     await api('/api/admin/logout', { method: 'POST' });
     isAdmin.value = false;
+    autoTestEnabled.value = false;
     fixedGroups.value = [];
+    scheduleAutoTest();
     ensureSelection();
     showNotice('已退出管理员。', 'info');
   } catch (error: any) { showNotice(error.message, 'error'); }
@@ -343,19 +353,19 @@ function syncLocalModels(event: StorageEvent) {
   if (event.key === MODEL_STORAGE_KEY || event.key === null) {
     try { loadConfigs(); } catch (error: any) { showNotice(error.message, 'error'); }
   }
-  if (event.key === AUTO_TEST_STORAGE_KEY || event.key === null) {
-    autoTestEnabled.value = event.newValue !== 'false';
-    scheduleAutoTest();
-  }
 }
 onMounted(async () => {
   window.addEventListener('storage', syncLocalModels);
-  try { autoTestEnabled.value = localStorage.getItem(AUTO_TEST_STORAGE_KEY) !== 'false'; }
-  catch { autoTestEnabled.value = false; showNotice('无法读取自动测试设置，已暂停自动测试。', 'error'); }
   try { loadConfigs(); } catch (error: any) { showNotice(error.message, 'error'); }
   try { await loadFixedGroups(); } catch (error: any) { showNotice(error.message, 'error'); }
   restoreOwnRun();
   try { await loadAdminSession(); } catch (error: any) { showNotice(error.message, 'error'); }
+  if (isAdmin.value) {
+    try {
+      const setting = await api<{ enabled: boolean }>('/api/auto-test');
+      autoTestEnabled.value = setting.enabled;
+    } catch (error: any) { autoTestEnabled.value = false; showNotice(error.message, 'error'); }
+  } else autoTestEnabled.value = false;
   try { await loadRuns(); } catch (error: any) { showNotice(error.message, 'error'); }
   scheduleAutoTest();
 });
@@ -367,7 +377,7 @@ onUnmounted(() => { eventSource?.close(); window.clearTimeout(noticeTimer); wind
     <main class="content">
       <section class="composer card"><div class="composer-grid"><div class="model-field"><div class="field-label"><label for="model">使用模型</label><button class="small-link" @click="editConfig()">管理模型 ↗</button></div><div class="model-select-row"><select id="model" :value="selectedConfigId" @change="selectModel(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ pickerGroups.some(item => item.options.length) ? '选择模型' : '请先添加自定义模型' }}</option><optgroup v-for="item in pickerGroups" :key="item.group" :label="item.group"><option v-for="option in item.options" :key="option.id" :value="option.id">{{ option.group }} · {{ option.model }}{{ option.configured ? '' : '（Key 未配置）' }}</option><option v-if="item.group === '自定义' && !item.options.length" value="new:自定义">＋ 添加自定义模型</option></optgroup></select><button v-if="selectedOption?.custom" class="select-settings" aria-label="编辑自定义模型" @click="editConfig(selectedOption.custom)">⚙</button></div></div><div class="prompt-field"><div class="field-label"><label for="prompt">你的提示词</label><span class="prompt-hint">描述页面、风格和交互</span></div><textarea id="prompt" v-model="prompt" rows="3" placeholder="例如：做一个小火龙在导弹上骑自行车的 2D SVG 动画，要有云朵、火焰和可以暂停的按钮。"></textarea></div><div class="composer-action"><button v-if="isRunning" class="stop-button" @click="stopGeneration">■ 停止</button><button v-else class="primary-button" :disabled="loading || !selectedOption" @click="startGeneration"><span>{{ loading ? '准备中…' : '开始生成' }}</span><b>↗</b></button></div></div>
         <div class="auto-test-control">
-          <label v-if="isAdmin" class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra</label>
+          <label v-if="isAdmin" class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra（取消勾选即暂停）</label>
           <p v-if="isAdmin" aria-live="off">{{ autoTestStatus }} 每日 23:00 至次日 08:00 暂停（浏览器本地时间）。刷新不会重置倒计时。请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
         </div>
       </section>
