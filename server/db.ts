@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MODEL_GROUPS, type ModelSnapshot, type RunDetail, type RunPage, type RunStatus, type RunSummary, type Usage } from '../shared/types.js';
+import { MODEL_GROUPS, formatRunCode, type ModelSnapshot, type RunDetail, type RunPage, type RunStatus, type RunSummary, type Usage } from '../shared/types.js';
 
 type DbRow = Record<string, unknown>;
 
@@ -61,6 +61,18 @@ export class Store {
         throw error;
       }
     }
+    const runColumns = this.db.prepare('PRAGMA table_info(runs)').all() as DbRow[];
+    if (!runColumns.some(column => column.name === 'run_number')) {
+      this.db.exec('ALTER TABLE runs ADD COLUMN run_number INTEGER');
+      this.db.exec(`
+        WITH ordered AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS run_number FROM runs
+        )
+        UPDATE runs SET run_number = (SELECT run_number FROM ordered WHERE ordered.id = runs.id)
+        WHERE run_number IS NULL
+      `);
+    }
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_number ON runs(run_number)');
     this.db.prepare("UPDATE runs SET status = 'interrupted', completed_at = COALESCE(completed_at, ?), error = COALESCE(error, '服务重启，中断了未完成任务。') WHERE status = 'running'").run(new Date().toISOString());
   }
 
@@ -72,8 +84,9 @@ export class Store {
     const existing = this.db.prepare('SELECT id FROM runs WHERE request_id = ?').get(input.requestId) as DbRow | undefined;
     if (existing) return this.getRun(String(existing.id))!;
     const id = crypto.randomUUID();
-    this.db.prepare(`INSERT INTO runs(id,request_id,config_id,prompt,constraint_text,snapshot_json,status,created_at,source_run_id)
-      VALUES(?,?,?,?,?,?,?, ?,?)`).run(id, input.requestId, null, input.prompt, input.constraintText, JSON.stringify(input.snapshot), 'running', this.now(), input.sourceRunId ?? null);
+    const number = Number((this.db.prepare('SELECT COALESCE(MAX(run_number), 0) + 1 AS number FROM runs').get() as DbRow).number);
+    this.db.prepare(`INSERT INTO runs(id,request_id,config_id,prompt,constraint_text,snapshot_json,status,created_at,source_run_id,run_number)
+      VALUES(?,?,?,?,?,?,?, ?,?,?)`).run(id, input.requestId, null, input.prompt, input.constraintText, JSON.stringify(input.snapshot), 'running', this.now(), input.sourceRunId ?? null, number);
     return this.getRun(id)!;
   }
 
@@ -111,7 +124,7 @@ export class Store {
     const saved = jsonParse<ModelSnapshot>(row.snapshot_json, {} as ModelSnapshot);
     const snapshot: ModelSnapshot = { group: saved.group ?? MODEL_GROUPS[0], model: saved.model, protocol: saved.protocol, stream: saved.stream, timeoutMs: saved.timeoutMs };
     const base = {
-      id: String(row.id), prompt: String(row.prompt), snapshot, status: row.status as RunStatus,
+      id: String(row.id), number: formatRunCode(Number(row.run_number) || 1), prompt: String(row.prompt), snapshot, status: row.status as RunStatus,
       createdAt: String(row.created_at), completedAt: row.completed_at ? String(row.completed_at) : null,
       elapsedMs: Number(row.elapsed_ms) || 0, usage: jsonParse<Usage | null>(row.usage_json, null), error: row.error ? String(row.error) : null,
       hasHtml: Boolean(row.html),

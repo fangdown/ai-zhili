@@ -54,10 +54,10 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
       };
       else if (url === '/api/runs' && options?.method === 'POST') {
         requests.push(JSON.parse(String(options.body)));
-        data = { id: 'run-' + requests.length };
+        data = { id: 'run-' + requests.length, number: 'A0001' };
       } else if (url.startsWith('/api/runs?')) data = { items: [], total: 0, activeRun: null };
       else if (url.startsWith('/api/runs/')) data = {
-        id: url.split('/').at(-1), prompt: '测试', constraint: '', rawOutput: '', html: null, status: 'succeeded',
+        id: url.split('/').at(-1), number: 'A0001', prompt: '测试', constraint: '', rawOutput: '', html: null, status: 'succeeded',
         createdAt: new Date(clock.now).toISOString(), completedAt: new Date(clock.now).toISOString(), elapsedMs: 100,
         usage: null, error: null, hasHtml: false, snapshot: { group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses', stream: true, timeoutMs: 600000 },
       };

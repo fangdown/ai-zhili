@@ -177,7 +177,7 @@ app.post('/api/runs', async (request, reply) => {
     tasks.set(run.id, { controller: new AbortController(), subscribers: new Set() });
     runTask(run.id, modelConfig).catch(() => undefined);
   }
-  reply.code(202).send({ id: run.id });
+  reply.code(202).send({ id: run.id, number: run.number });
 });
 app.post('/api/runs/:id/cancel', async request => {
   const id = String((request.params as any).id);

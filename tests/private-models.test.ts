@@ -118,12 +118,17 @@ test('迁移保留旧历史，新增记录无需共享模型且只保存公开�
     legacy.close(); legacy = undefined;
 
     store = new Store(path);
-    assert.deepEqual(store.db.prepare('SELECT * FROM runs').all(), original);
+    const migrated = store.db.prepare('SELECT * FROM runs').all() as Array<Record<string, unknown>>;
+    assert.equal(migrated[0].run_number, 1);
+    assert.deepEqual(migrated.map(({ run_number: _number, ...row }) => row), original.map(row => ({ ...row })));
     assert.equal(store.getRun('legacy-run')?.html, html);
     assert.equal('baseUrl' in store.getRun('legacy-run')!.snapshot, false);
     assert.equal('name' in store.getRun('legacy-run')!.snapshot, false);
     const input = { requestId: 'browser-request', prompt: '新提示词', constraintText: '新约束', snapshot: publicModelSnapshot(parseGenerationModel(config)) };
     const run = store.createRun(input);
+    assert.equal(run.number, 'A0002');
+    const next = store.createRun({ ...input, requestId: 'another-request' });
+    assert.equal(next.number, 'A0003');
     assert.equal(store.createRun(input).id, run.id);
     assert.equal(store.ownsRun(run.id, input.requestId), true);
     assert.equal(store.ownsRun(run.id, 'another-browser'), false);

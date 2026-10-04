@@ -79,6 +79,7 @@ export interface Usage {
 
 export interface RunSummary {
   id: string;
+  number: string;
   prompt: string;
   snapshot: ModelSnapshot;
   status: RunStatus;
@@ -128,6 +129,12 @@ export const OUTPUT_CONSTRAINT = `生成一个可直接在浏览器打开的完�
 只呈现用户要求的动画或插画主体，自动播放并持续循环；不要页面标题、副标题、说明、页眉页脚、暂停/播放/重播按钮、进度条、计时器或参数面板。
 将完整画面放在唯一的 data-preview-scene 元素内（优先标记最外层 SVG 或 Canvas），画面内保留必要的图形元素，不添加界面控件。
 画面等比适配视口、无滚动条，移除多余外边距，让动画主体完整可见；在桌面和手机上保持画面比例。`;
+
+export function formatRunCode(value: number) {
+  const index = Math.max(1, Math.floor(value)) - 1;
+  const letter = String.fromCharCode(65 + (Math.floor(index / 9999) % 26));
+  return `${letter}${String((index % 9999) + 1).padStart(4, '0')}`;
+}
 
 export const RUN_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
