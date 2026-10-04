@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './db.js';
 import { AppError } from './errors.js';
 import { generate } from './provider.js';
-import { MAX_OUTPUT_BYTES, OUTPUT_CONSTRAINT, RUN_TIMEOUT_MS, type CreateRunInput, type GenerationModel } from '../shared/types.js';
+import { AUTO_TEST_PROMPT, MAX_OUTPUT_BYTES, OUTPUT_CONSTRAINT, RUN_TIMEOUT_MS, type CreateRunInput, type GenerationModel } from '../shared/types.js';
 import { parseGenerationModel, publicModelSnapshot } from './modelInput.js';
 import { fixedGroupCatalog } from './groupKeys.js';
 import { createAdminAuth } from './adminAuth.js';
+import { createAutoTestScheduler } from './autoTest.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dataDir = process.env.DATA_DIR ? resolve(process.cwd(), process.env.DATA_DIR) : join(root, 'data');
@@ -110,15 +111,20 @@ app.addHook('onSend', async (_request, reply) => {
 app.get('/api/auto-test', async (request, reply) => {
   reply.header('Cache-Control', 'no-store');
   requireAdmin(request);
-  return { enabled: store.getMeta('auto_test_enabled') !== 'false' };
+  return autoTest.state();
 });
 app.post('/api/auto-test', async request => {
   requireSameOrigin(request);
   requireAdmin(request);
-  const enabled = (request.body as { enabled?: unknown } | null)?.enabled;
-  if (typeof enabled !== 'boolean') fail(400, '自动测试开关无效。');
-  store.setMeta('auto_test_enabled', String(enabled));
-  return { enabled };
+  const body = (request.body ?? {}) as { enabled?: unknown; prompt?: unknown };
+  if (typeof body.enabled === 'boolean') autoTest.setEnabled(body.enabled);
+  if (typeof body.prompt === 'string') {
+    const prompt = body.prompt.trim();
+    if (!prompt || prompt.length > 100_000) fail(400, '自动测试提示词无效。');
+    autoTest.setPrompt(prompt);
+  }
+  if (typeof body.enabled !== 'boolean' && typeof body.prompt !== 'string') fail(400, '自动测试设置无效。');
+  return autoTest.state();
 });
 
 app.get('/api/model-groups', async (request, reply) => {
@@ -181,14 +187,36 @@ app.get('/api/runs/:id/download', async (request, reply) => {
   return run.html;
 });
 
+async function startServerRun(prompt: string, modelConfig: GenerationModel) {
+  const snapshot = publicModelSnapshot(modelConfig);
+  const run = store.createRun({ requestId: crypto.randomUUID(), prompt, constraintText: OUTPUT_CONSTRAINT, snapshot });
+  if (!tasks.has(run.id) && run.status === 'running') {
+    tasks.set(run.id, { controller: new AbortController(), subscribers: new Set() });
+    runTask(run.id, modelConfig).catch(() => undefined);
+  }
+  return run;
+}
+
+const autoTest = createAutoTestScheduler({
+  store,
+  defaultPrompt: AUTO_TEST_PROMPT,
+  startRun: async prompt => {
+    const modelConfig = parseGenerationModel(
+      { group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses' },
+      { allowFixedGroups: true },
+    );
+    await startServerRun(prompt, modelConfig);
+  },
+});
+setInterval(() => { autoTest.tick().catch(() => undefined); }, 5_000);
+
 app.post('/api/runs', async (request, reply) => {
   const body = (request.body ?? {}) as Partial<CreateRunInput>;
   const requestId = requireString(body.requestId, '请求 ID', 100);
   const prompt = requireString(body.prompt, '提示词', 100_000);
   const modelConfig = parseGenerationModel(body.modelConfig, { allowFixedGroups: adminAuth.isAuthenticated(request.headers.cookie) });
   delete body.modelConfig;
-  const snapshot = publicModelSnapshot(modelConfig);
-  const run = store.createRun({ requestId, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot, sourceRunId: body.sourceRunId });
+  const run = store.createRun({ requestId, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot: publicModelSnapshot(modelConfig), sourceRunId: body.sourceRunId });
   if (!tasks.has(run.id) && run.status === 'running') {
     tasks.set(run.id, { controller: new AbortController(), subscribers: new Set() });
     runTask(run.id, modelConfig).catch(() => undefined);

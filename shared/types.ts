@@ -121,6 +121,8 @@ export interface DeltaEvent {
   elapsedMs: number;
 }
 
+export const AUTO_TEST_PROMPT = '创建一个HTML代码，内容是SVG绘制一个小火龙在导弹上骑自行车的2D动画，不能测试，不能使用sikll技能，不能搜索本地文件';
+
 export const OUTPUT_CONSTRAINT = `生成一个可直接在浏览器打开的完整单文件 HTML。
 必须包含 <!DOCTYPE html>、<html>、<head> 和 <body>，正确闭合 HTML 标签。
 所有 CSS 和 JavaScript 内嵌在这个文件中；图形使用内嵌 SVG、CSS 或 Canvas。
