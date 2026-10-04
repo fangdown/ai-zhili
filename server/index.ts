@@ -105,8 +105,9 @@ app.addHook('onSend', async (_request, reply) => {
   reply.header('Content-Security-Policy', "default-src 'self'; base-uri 'none'; frame-ancestors 'self' https://api.opens.chat; object-src 'none'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'");
 });
 
-app.get('/api/model-groups', async (_request, reply) => {
+app.get('/api/model-groups', async (request, reply) => {
   reply.header('Cache-Control', 'no-store');
+  if (!adminAuth.isAuthenticated(request.headers.cookie)) return { groups: [] };
   return { groups: fixedGroupCatalog() };
 });
 app.route({ method: ['GET', 'POST', 'PATCH', 'DELETE'], url: '/api/model-configs', handler: async () => fail(410, '模型配置仅保存在各自浏览器中。') });
@@ -168,7 +169,7 @@ app.post('/api/runs', async (request, reply) => {
   const body = (request.body ?? {}) as Partial<CreateRunInput>;
   const requestId = requireString(body.requestId, '请求 ID', 100);
   const prompt = requireString(body.prompt, '提示词', 100_000);
-  const modelConfig = parseGenerationModel(body.modelConfig);
+  const modelConfig = parseGenerationModel(body.modelConfig, { allowFixedGroups: adminAuth.isAuthenticated(request.headers.cookie) });
   delete body.modelConfig;
   const snapshot = publicModelSnapshot(modelConfig);
   const run = store.createRun({ requestId, prompt, constraintText: OUTPUT_CONSTRAINT, snapshot, sourceRunId: body.sourceRunId });

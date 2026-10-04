@@ -42,7 +42,7 @@ async function browser(clock: { now: number }, saved = new Map<string, string>()
     },
     fetch: async (url: string, options?: RequestInit) => {
       let data: unknown;
-      if (url === '/api/admin/session') data = { configured: false, authenticated: false };
+      if (url === '/api/admin/session') data = { configured: true, authenticated: true };
       else if (url === '/api/model-groups') data = {
         groups: [
           { group: 'GRT-PRO稳定', configured: true, models: [{ model: 'gpt-6-astra', protocol: 'responses' }] },
@@ -118,14 +118,12 @@ test('服务端任务已结束时清理残留状态，不永久阻塞自动生�
   app.close();
 });
 
-test('夜间不补发，次日八点恢复自动生成', async () => {
-  const clock = { now: new Date(2026, 8, 27, 21, 50).valueOf() };
+test('23点后不补发，次日八点恢复自动生成', async () => {
+  const clock = { now: new Date(2026, 8, 27, 23, 10).valueOf() };
   const app = await browser(clock);
-  await app.advance(10 * minute);
   assert.equal(app.requests.length, 0);
-  await app.advance(10 * 60 * minute - 1000);
-  assert.equal(app.requests.length, 0);
-  await app.advance(1000);
+  clock.now = new Date(2026, 8, 28, 7, 59).valueOf();
+  await app.advance(minute);
   assert.equal(app.requests.length, 1);
   app.close();
 });

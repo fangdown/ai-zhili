@@ -3,12 +3,13 @@ import { RUN_TIMEOUT_MS } from '../shared/types.js';
 import { AppError } from './errors.js';
 import { resolveFixedGroupModel } from './groupKeys.js';
 
-export function parseGenerationModel(value: unknown): GenerationModel {
+export function parseGenerationModel(value: unknown, options: { allowFixedGroups?: boolean } = {}): GenerationModel {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError(400, '请提交当前使用的模型。');
   const input = value as Record<string, unknown>;
   if (!MODEL_GROUPS.includes(input.group as typeof MODEL_GROUPS[number])) throw new AppError(400, '模型分组不受支持。');
   const group = input.group as typeof MODEL_GROUPS[number];
   if (!isCustomModelGroup(group)) {
+    if (!options.allowFixedGroups) throw new AppError(403, '固定分组仅管理员可用。');
     const model = text(input, 'model', '模型名称', 180);
     const protocol = protocolOf(input.protocol);
     return resolveFixedGroupModel(group, model, protocol);

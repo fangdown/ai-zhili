@@ -28,7 +28,7 @@ const AUTO_TEST_STORAGE_KEY = 'ai-zhili.auto-test.v1';
 const AUTO_TEST_NEXT_RUN_STORAGE_KEY = 'ai-zhili.auto-test.next-run.v1';
 const AUTO_TEST_INTERVAL_MS = 10 * 60 * 1000;
 const autoTestEnabled = ref(true);
-const autoTestNow = ref(Date.now());
+const autoTestNow = ref(Date.now.call(Date));
 const autoTestNextRunAt = ref(0);
 const autoTestLastMessage = ref('');
 let autoTestChecking = false;
@@ -42,10 +42,10 @@ interface PickerOption { id: string; group: ModelGroup; model: string; protocol:
 const fixedGroups = ref<FixedGroupState[]>(MODEL_GROUPS.filter(isFixedModelGroup).map(group => ({ group, configured: false, models: [...fixedGroupModels(group)] })));
 const customConfigs = computed(() => configs.value.filter(item => isCustomModelGroup(item.group)));
 const pickerGroups = computed(() => {
-  const fixed: Array<{ group: ModelGroup; options: PickerOption[] }> = fixedGroups.value.map(item => ({
+  const fixed: Array<{ group: ModelGroup; options: PickerOption[] }> = isAdmin.value ? fixedGroups.value.map(item => ({
     group: item.group,
     options: item.models.map(model => ({ id: `fixed:${item.group}:${model.model}`, group: item.group, model: model.model, protocol: model.protocol, configured: item.configured })),
-  }));
+  })) : [];
   const custom: { group: ModelGroup; options: PickerOption[] } = {
     group: CUSTOM_MODEL_GROUP,
     options: customConfigs.value.map(config => ({ id: config.id, group: config.group, model: config.model, protocol: config.protocol, configured: Boolean(config.apiKey), custom: config })),
@@ -53,14 +53,15 @@ const pickerGroups = computed(() => {
   return [...fixed, custom];
 });
 const selectedOption = computed(() => pickerGroups.value.flatMap(item => item.options).find(item => item.id === selectedConfigId.value));
-const autoTestOption = computed(() => pickerGroups.value.flatMap(item => item.options).find(item => item.group === 'GRT-PRO稳定' && item.model === 'gpt-6-astra' && item.configured));
+const autoTestOption = computed(() => isAdmin.value ? pickerGroups.value.flatMap(item => item.options).find(item => item.group === 'GRT-PRO稳定' && item.model === 'gpt-6-astra' && item.configured) : undefined);
 const activeRun = computed(() => activeRunId.value ? details.value[activeRunId.value] : undefined);
 const isRunning = computed(() => activeRun.value?.status === 'running');
 const autoTestStatus = computed(() => {
+  if (!isAdmin.value) return '管理员登录后才会自动测试 GRT-PRO稳定。';
   if (!autoTestEnabled.value) return '自动测试已暂停。';
   if (!autoTestOption.value) return '服务器尚未配置 GRT-PRO稳定分组的 API Key。';
   if (!prompt.value.trim()) return '请先填写提示词。';
-  if (isAutoTestQuietTime(autoTestNow.value)) return '夜间暂停，08:00 后恢复自动测试。';
+  if (isAutoTestQuietTime(autoTestNow.value)) return '已暂停，08:00 后恢复自动测试。';
   const seconds = Math.max(0, Math.ceil((autoTestNextRunAt.value - autoTestNow.value) / 1000));
   const time = new Date(autoTestNextRunAt.value).toLocaleTimeString('zh-CN', { hour12: false });
   const waiting = loading.value || ownRun.value || isRunning.value ? '等待当前任务结束；到时会核对服务器状态。' : '';
@@ -97,6 +98,11 @@ function loadConfigs() {
 function ensureSelection() {
   const options = pickerGroups.value.flatMap(item => item.options);
   if (options.some(item => item.id === selectedConfigId.value)) return;
+  if (!isAdmin.value) {
+    const custom = customConfigs.value.find(item => item.isDefault && item.apiKey) ?? customConfigs.value.find(item => item.apiKey) ?? customConfigs.value[0];
+    selectedConfigId.value = custom?.id ?? '';
+    return;
+  }
   const preferredCustom = customConfigs.value.find(item => item.isDefault);
   const preferred = options.find(item => item.id === preferredCustom?.id && item.configured) ?? options.find(item => item.configured) ?? options[0];
   selectedConfigId.value = preferred?.id ?? '';
@@ -175,7 +181,7 @@ async function startGeneration() {
 }
 function isAutoTestQuietTime(timestamp: number) {
   const hour = new Date(timestamp).getHours();
-  return hour >= 22 || hour < 8;
+  return hour >= 23 || hour < 8;
 }
 function saveNextAutoTestAt(timestamp: number) {
   autoTestNextRunAt.value = timestamp;
@@ -183,14 +189,14 @@ function saveNextAutoTestAt(timestamp: number) {
   catch { showNotice('浏览器无法保存倒计时，刷新页面后将重新计时。', 'info'); }
 }
 async function checkAutoTest() {
-  autoTestNow.value = Date.now();
-  if (!autoTestEnabled.value || autoTestChecking || isAutoTestQuietTime(autoTestNow.value)) return;
+  autoTestNow.value = Date.now.call(Date);
+  if (!isAdmin.value || !autoTestEnabled.value || autoTestChecking || isAutoTestQuietTime(autoTestNow.value)) return;
   if (autoTestNow.value < autoTestNextRunAt.value || !autoTestOption.value || !prompt.value.trim() || loading.value) return;
   autoTestChecking = true;
   saveNextAutoTestAt(autoTestNow.value + AUTO_TEST_INTERVAL_MS);
   try {
     if (ownRun.value) await openRun(ownRun.value.id);
-    if (!autoTestEnabled.value || isAutoTestQuietTime(Date.now())) return;
+    if (!isAdmin.value || !autoTestEnabled.value || isAutoTestQuietTime(Date.now.call(Date))) return;
     if (ownRun.value || isRunning.value || loading.value) {
       autoTestLastMessage.value = '本次跳过：当前任务尚未结束或状态未能确认。';
       return;
@@ -202,7 +208,7 @@ async function checkAutoTest() {
 function scheduleAutoTest() {
   window.clearInterval(autoTestTimer);
   if (!autoTestEnabled.value) return;
-  autoTestNow.value = Date.now();
+  autoTestNow.value = Date.now.call(Date);
   let saved = 0;
   try { saved = Number(localStorage.getItem(AUTO_TEST_NEXT_RUN_STORAGE_KEY)); } catch { /* Use an in-memory deadline when storage is unavailable. */ }
   saveNextAutoTestAt(Number.isFinite(saved) && saved > 0 && saved <= autoTestNow.value + AUTO_TEST_INTERVAL_MS ? saved : autoTestNow.value + AUTO_TEST_INTERVAL_MS);
@@ -263,6 +269,7 @@ async function loginAdmin() {
     adminPassword.value = '';
     isAdmin.value = true;
     closeAdminLogin();
+    await loadFixedGroups();
     showNotice('管理员登录成功。', 'success');
   } catch (error: any) { showNotice(error.message, 'error'); }
   finally { adminLoading.value = false; }
@@ -271,6 +278,8 @@ async function logoutAdmin() {
   try {
     await api('/api/admin/logout', { method: 'POST' });
     isAdmin.value = false;
+    fixedGroups.value = [];
+    ensureSelection();
     showNotice('已退出管理员。', 'info');
   } catch (error: any) { showNotice(error.message, 'error'); }
 }
@@ -358,14 +367,14 @@ onUnmounted(() => { eventSource?.close(); window.clearTimeout(noticeTimer); wind
     <main class="content">
       <section class="composer card"><div class="composer-grid"><div class="model-field"><div class="field-label"><label for="model">使用模型</label><button class="small-link" @click="editConfig()">管理模型 ↗</button></div><div class="model-select-row"><select id="model" :value="selectedConfigId" @change="selectModel(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ pickerGroups.some(item => item.options.length) ? '选择模型' : '请先添加自定义模型' }}</option><optgroup v-for="item in pickerGroups" :key="item.group" :label="item.group"><option v-for="option in item.options" :key="option.id" :value="option.id">{{ option.group }} · {{ option.model }}{{ option.configured ? '' : '（Key 未配置）' }}</option><option v-if="item.group === '自定义' && !item.options.length" value="new:自定义">＋ 添加自定义模型</option></optgroup></select><button v-if="selectedOption?.custom" class="select-settings" aria-label="编辑自定义模型" @click="editConfig(selectedOption.custom)">⚙</button></div></div><div class="prompt-field"><div class="field-label"><label for="prompt">你的提示词</label><span class="prompt-hint">描述页面、风格和交互</span></div><textarea id="prompt" v-model="prompt" rows="3" placeholder="例如：做一个小火龙在导弹上骑自行车的 2D SVG 动画，要有云朵、火焰和可以暂停的按钮。"></textarea></div><div class="composer-action"><button v-if="isRunning" class="stop-button" @click="stopGeneration">■ 停止</button><button v-else class="primary-button" :disabled="loading || !selectedOption" @click="startGeneration"><span>{{ loading ? '准备中…' : '开始生成' }}</span><b>↗</b></button></div></div>
         <div class="auto-test-control">
-          <label class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra</label>
-          <p aria-live="off">{{ autoTestStatus }} 每日 22:00 至次日 08:00 暂停自动测试（浏览器本地时间）。刷新不会重置倒计时。请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
+          <label v-if="isAdmin" class="check-label"><input type="checkbox" :checked="autoTestEnabled" @change="setAutoTestEnabled(($event.target as HTMLInputElement).checked)" />每 10 分钟自动测试 GRT-PRO稳定 · gpt-6-astra</label>
+          <p v-if="isAdmin" aria-live="off">{{ autoTestStatus }} 每日 23:00 至次日 08:00 暂停（浏览器本地时间）。刷新不会重置倒计时。请仅保留一个测试页面打开，页面休眠时执行可能延迟。</p>
         </div>
       </section>
       <section class="gallery-section"><div class="gallery-heading"><div><h1>历史记录</h1></div><span class="gallery-count">{{ runs.length }} 个页面</span><button v-if="adminConfigured && !isAdmin" class="admin-button" @click="openAdminLogin">管理员登录</button><div v-else-if="isAdmin" class="admin-session"><span>管理员</span><button @click="logoutAdmin">退出</button></div><button class="refresh-button" @click="loadRunsOnly">刷新 ↻</button></div><div v-if="!runs.length" class="empty-gallery card"><div class="empty-icon">◎</div><h2>还没有生成记录</h2><p>完成第一次生成后，页面预览会出现在这里。</p></div><div v-else class="gallery-grid"><article v-for="run in runs" :key="run.id" class="preview-card" :class="{ selected: selectedCardId === run.id }" @click="openRun(run.id)"><div class="preview-frame"><HtmlPreview v-if="details[run.id]?.html" :html="details[run.id].html!" /><div v-else-if="run.status === 'running'" class="card-loading"><div class="loader"></div><span>正在生成…</span></div><div v-else class="card-failed"><span>◌</span><small>暂无可用预览</small></div><span class="status-ribbon" :class="statusClass(run.status)"><i></i>{{ statusLabel(run.status) }}</span></div><div class="card-info"><div class="card-title">{{ promptPreview(run.prompt) }}</div><div class="card-meta"><span>{{ run.snapshot.group }} · {{ run.snapshot.model }}</span><button v-if="isAdmin" class="delete-button" :disabled="run.status === 'running'" @click.stop="deleteRun(run.id)">删除</button></div><div class="card-time">{{ formatTime(run.createdAt) }}</div></div></article></div></section>
     </main>
     <div v-if="notice" class="toast" :class="`toast-${notice.type}`">{{ notice.text }}</div>
-    <div v-if="showSettings" class="modal-backdrop"><section class="settings-modal card"><div class="modal-heading"><div><span class="eyebrow">仅自定义分组保存在当前浏览器</span><h2>{{ editingId ? '编辑自定义模型' : '添加自定义模型' }}</h2></div><button class="modal-close" @click="showSettings = false">×</button></div><div class="settings-form"><label>模型分组<input :value="CUSTOM_MODEL_GROUP" disabled /></label><label>Base URL<input v-model="configForm.baseUrl" placeholder="https://api.opens.chat/v1" /></label><label>模型名称<input v-model="configForm.model" placeholder="your-model" /></label><label>API Key <small v-if="editingId">留空以保留当前 Key</small><input v-model="configForm.apiKey" type="password" autocomplete="new-password" placeholder="不会回显已保存的 Key" /></label><label>接口协议<select v-model="configForm.protocol"><option value="chat-completions">Chat Completions</option><option value="responses">Responses</option><option value="anthropic-messages">Claude Messages</option></select></label><div class="toggle-row"><label class="check-label"><input v-model="configForm.stream" type="checkbox" /> 流式输出</label><label class="check-label"><input v-model="configForm.isDefault" type="checkbox" /> 设为默认模型</label></div></div><div class="modal-footer"><p class="local-config-note">固定分组的 Key 只保存在服务器。自定义分组的地址和 Key 仅保存在当前浏览器，生成时临时发送至后端，不写入历史记录。</p><div class="config-list"><div v-for="group in fixedGroups" :key="group.group" class="config-line"><span>{{ group.group }} <small>{{ group.models.map(item => item.model).join('、') }}</small></span><span><small>{{ group.configured ? '服务器 Key 已配置' : '服务器 Key 未配置' }}</small></span></div><div v-for="config in customConfigs" :key="config.id" class="config-line"><span>{{ config.group }} · {{ config.model }} <small>{{ config.hasKey ? config.keyMask : 'Key 不可用' }}</small></span><span><button @click="editConfig(config)">编辑</button><button @click="removeConfig(config)">删除</button></span></div></div><div class="modal-actions"><button class="outline-button" @click="showSettings = false">取消</button><button class="primary-button" :disabled="savingConfig" @click="saveConfig">{{ savingConfig ? '保存中…' : '保存自定义模型' }} <b>↗</b></button></div></div></section></div>
+    <div v-if="showSettings" class="modal-backdrop"><section class="settings-modal card"><div class="modal-heading"><div><span class="eyebrow">仅自定义分组保存在当前浏览器</span><h2>{{ editingId ? '编辑自定义模型' : '添加自定义模型' }}</h2></div><button class="modal-close" @click="showSettings = false">×</button></div><div class="settings-form"><label>模型分组<input :value="CUSTOM_MODEL_GROUP" disabled /></label><label>Base URL<input v-model="configForm.baseUrl" placeholder="https://api.opens.chat/v1" /></label><label>模型名称<input v-model="configForm.model" placeholder="your-model" /></label><label>API Key <small v-if="editingId">留空以保留当前 Key</small><input v-model="configForm.apiKey" type="password" autocomplete="new-password" placeholder="不会回显已保存的 Key" /></label><label>接口协议<select v-model="configForm.protocol"><option value="chat-completions">Chat Completions</option><option value="responses">Responses</option><option value="anthropic-messages">Claude Messages</option></select></label><div class="toggle-row"><label class="check-label"><input v-model="configForm.stream" type="checkbox" /> 流式输出</label><label class="check-label"><input v-model="configForm.isDefault" type="checkbox" /> 设为默认模型</label></div></div><div class="modal-footer"><p class="local-config-note">固定分组的 Key 只保存在服务器。自定义分组的地址和 Key 仅保存在当前浏览器，生成时临时发送至后端，不写入历史记录。</p><div class="config-list"><template v-if="isAdmin"><div v-for="group in fixedGroups" :key="group.group" class="config-line"><span>{{ group.group }} <small>{{ group.models.map(item => item.model).join('、') }}</small></span><span><small>{{ group.configured ? '服务器 Key 已配置' : '服务器 Key 未配置' }}</small></span></div></template><div v-for="config in customConfigs" :key="config.id" class="config-line"><span>{{ config.group }} · {{ config.model }} <small>{{ config.hasKey ? config.keyMask : 'Key 不可用' }}</small></span><span><button @click="editConfig(config)">编辑</button><button @click="removeConfig(config)">删除</button></span></div></div><div class="modal-actions"><button class="outline-button" @click="showSettings = false">取消</button><button class="primary-button" :disabled="savingConfig" @click="saveConfig">{{ savingConfig ? '保存中…' : '保存自定义模型' }} <b>↗</b></button></div></div></section></div>
     <div v-if="showAdminLogin" class="modal-backdrop"><section class="admin-modal card"><div class="modal-heading"><div><span class="eyebrow">ADMIN ACCESS</span><h2>管理员登录</h2></div><button class="modal-close" @click="closeAdminLogin">×</button></div><form class="admin-form" @submit.prevent="loginAdmin"><label for="admin-password">管理员密码</label><input id="admin-password" v-model="adminPassword" type="password" autocomplete="current-password" autofocus placeholder="输入服务器管理员密码" /><p>登录状态仅通过安全 Cookie 保存在当前浏览器。</p><div class="admin-modal-actions"><button type="button" class="outline-button" @click="closeAdminLogin">取消</button><button type="submit" class="primary-button" :disabled="adminLoading || !adminPassword">{{ adminLoading ? '登录中…' : '登录' }}</button></div></form></section></div>
   </div>
 </template>
