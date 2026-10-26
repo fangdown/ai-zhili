@@ -123,6 +123,7 @@ export async function generate(options: ProviderOptions): Promise<ProviderResult
     stream: config.stream,
   } : config.protocol === 'responses' ? {
     model: config.model,
+    ...(config.reasoningEffort ? { reasoning: { effort: config.reasoningEffort } } : {}),
     input: [
       { role: 'system', content: [{ type: 'input_text', text: options.constraint }] },
       { role: 'user', content: [{ type: 'input_text', text: options.prompt }] },
@@ -130,6 +131,7 @@ export async function generate(options: ProviderOptions): Promise<ProviderResult
     stream: config.stream,
   } : {
     model: config.model,
+    ...(config.reasoningEffort ? { reasoning_effort: config.reasoningEffort } : {}),
     messages: [{ role: 'system', content: options.constraint }, { role: 'user', content: options.prompt }],
     stream: config.stream,
     ...(config.stream ? { stream_options: { include_usage: true } } : {}),

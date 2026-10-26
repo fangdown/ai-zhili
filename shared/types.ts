@@ -8,11 +8,15 @@ export type FixedModelGroup = Exclude<ModelGroup, typeof CUSTOM_MODEL_GROUP>;
 export interface FixedGroupModel {
   model: string;
   protocol: Protocol;
+  reasoningEffort?: 'high';
 }
 
 /** Built-in groups. Their API keys stay on the server; the custom group does not. */
 export const FIXED_GROUP_MODELS: Record<FixedModelGroup, readonly FixedGroupModel[]> = {
-  'GRT-PRO稳定': [{ model: 'gpt-6-astra', protocol: 'responses' }],
+  'GRT-PRO稳定': [
+    { model: 'gpt-6.1-sol', protocol: 'responses', reasoningEffort: 'high' },
+    { model: 'deepseek-v4.1-flash', protocol: 'chat-completions', reasoningEffort: 'high' },
+  ],
   'GPT-企业级': [{ model: 'gpt-6-astra', protocol: 'responses' }],
   'GPT-官key': [{ model: 'gpt-6-astra', protocol: 'responses' }],
   'GPT-福利': [{ model: 'gpt-5.6-sol', protocol: 'responses' }],
@@ -61,6 +65,7 @@ export interface GenerationModel {
   model: string;
   protocol: Protocol;
   stream: boolean;
+  reasoningEffort?: 'high';
 }
 
 export interface ModelSnapshot {

@@ -39,5 +39,5 @@ export function resolveFixedGroupModel(group: ModelGroup, model: string, protoco
   if (!match) throw new AppError(400, '该固定分组不提供此模型。');
   const apiKey = fixedGroupKey(group);
   if (!apiKey) throw new AppError(503, `服务器尚未配置「${group}」的 API Key。`);
-  return { group, baseUrl: FIXED_GROUP_BASE_URL, apiKey, model: match.model, protocol: match.protocol, stream: true as const };
+  return { group, baseUrl: FIXED_GROUP_BASE_URL, apiKey, model: match.model, protocol: match.protocol, stream: true as const, reasoningEffort: match.reasoningEffort };
 }

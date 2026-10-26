@@ -202,7 +202,7 @@ const autoTest = createAutoTestScheduler({
   defaultPrompt: AUTO_TEST_PROMPT,
   startRun: async (prompt, claim) => {
     const modelConfig = parseGenerationModel(
-      { group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses' },
+      { group: 'GRT-PRO稳定', model: 'gpt-6.1-sol', protocol: 'responses' },
       { allowFixedGroups: true },
     );
     await startServerRun(prompt, modelConfig, claim);
@@ -215,7 +215,7 @@ app.post('/api/runs', async (request, reply) => {
   const requestId = requireString(body.requestId, '请求 ID', 100);
   const prompt = requireString(body.prompt, '提示词', 100_000);
   const modelInput = body.modelConfig && typeof body.modelConfig === 'object' ? body.modelConfig as unknown as Record<string, unknown> : {};
-  const staleAutoTest = modelInput.group === 'GRT-PRO稳定' && modelInput.model === 'gpt-6-astra' && prompt.trim() === autoTest.prompt().trim();
+  const staleAutoTest = modelInput.group === 'GRT-PRO稳定' && ['gpt-6-astra', 'gpt-6.1-sol'].includes(String(modelInput.model)) && prompt.trim() === autoTest.prompt().trim();
   if (staleAutoTest && !autoTest.consumeClaim(requestId)) fail(409, '自动测试由服务器计时，请刷新页面。');
   const modelConfig = parseGenerationModel(body.modelConfig, { allowFixedGroups: adminAuth.isAuthenticated(request.headers.cookie) });
   delete body.modelConfig;

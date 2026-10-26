@@ -68,11 +68,15 @@ test('固定分组使用服务器 Key，忽略浏览器提交的地址和 Key', 
   process.env.MODEL_KEY_GRT_PRO = 'SERVER_ONLY_GRT_KEY';
   process.env.MODEL_KEY_CLAUDE_OPUS_5_5 = 'SERVER_ONLY_CLAUDE_KEY';
   try {
-    assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses' }), /仅管理员/);
-    const parsed = parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6-astra', protocol: 'responses', apiKey: 'CLIENT_KEY', baseUrl: 'https://evil.example/v1' }, { allowFixedGroups: true });
+    assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6.1-sol', protocol: 'responses' }), /仅管理员/);
+    const parsed = parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6.1-sol', protocol: 'responses', apiKey: 'CLIENT_KEY', baseUrl: 'https://evil.example/v1' }, { allowFixedGroups: true });
     assert.equal(parsed.apiKey, 'SERVER_ONLY_GRT_KEY');
     assert.equal(parsed.baseUrl, 'https://api.opens.chat/v1');
     assert.equal(parsed.stream, true);
+    assert.equal(parsed.reasoningEffort, 'high');
+    const deepseek = parseGenerationModel({ group: 'GRT-PRO稳定', model: 'deepseek-v4.1-flash', protocol: 'chat-completions' }, { allowFixedGroups: true });
+    assert.equal(deepseek.protocol, 'chat-completions');
+    assert.equal(deepseek.reasoningEffort, 'high');
     const claude = parseGenerationModel({ group: 'claude-opus-5-5', model: 'claude-opus-5-5', protocol: 'anthropic-messages' }, { allowFixedGroups: true });
     assert.equal(claude.apiKey, 'SERVER_ONLY_CLAUDE_KEY');
     assert.equal(claude.protocol, 'anthropic-messages');
