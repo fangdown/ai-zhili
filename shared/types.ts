@@ -1,6 +1,6 @@
 export type Protocol = 'chat-completions' | 'responses' | 'anthropic-messages';
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
-export const MODEL_GROUPS = ['GRT-PRO稳定', 'GPT-企业级', 'GPT-官key', 'GPT-福利', 'claude-opus-5-5', '自定义'] as const;
+export const MODEL_GROUPS = ['GRT-PRO稳定', 'DS-DeepSeek', 'GPT-企业级', 'GPT-官key', 'GPT-福利', 'claude-opus-5-5', '自定义'] as const;
 export type ModelGroup = typeof MODEL_GROUPS[number];
 export const CUSTOM_MODEL_GROUP = '自定义' as const;
 export type FixedModelGroup = Exclude<ModelGroup, typeof CUSTOM_MODEL_GROUP>;
@@ -15,8 +15,8 @@ export interface FixedGroupModel {
 export const FIXED_GROUP_MODELS: Record<FixedModelGroup, readonly FixedGroupModel[]> = {
   'GRT-PRO稳定': [
     { model: 'gpt-6.1-sol', protocol: 'responses', reasoningEffort: 'high' },
-    { model: 'deepseek-v4.1-flash', protocol: 'chat-completions', reasoningEffort: 'high' },
   ],
+  'DS-DeepSeek': [{ model: 'deepseek-v4.1-flash', protocol: 'chat-completions', reasoningEffort: 'high' }],
   'GPT-企业级': [{ model: 'gpt-6-astra', protocol: 'responses' }],
   'GPT-官key': [{ model: 'gpt-6-astra', protocol: 'responses' }],
   'GPT-福利': [{ model: 'gpt-5.6-sol', protocol: 'responses' }],

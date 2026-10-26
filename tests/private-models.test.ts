@@ -63,9 +63,11 @@ test('支持 Claude 原生 Messages 协议配置', () => {
 test('固定分组使用服务器 Key，忽略浏览器提交的地址和 Key', () => {
   const previous = {
     grt: process.env.MODEL_KEY_GRT_PRO,
+    deepseek: process.env.MODEL_KEY_DS_DEEPSEEK,
     claude: process.env.MODEL_KEY_CLAUDE_OPUS_5_5,
   };
   process.env.MODEL_KEY_GRT_PRO = 'SERVER_ONLY_GRT_KEY';
+  process.env.MODEL_KEY_DS_DEEPSEEK = 'SERVER_ONLY_DEEPSEEK_KEY';
   process.env.MODEL_KEY_CLAUDE_OPUS_5_5 = 'SERVER_ONLY_CLAUDE_KEY';
   try {
     assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'gpt-6.1-sol', protocol: 'responses' }), /仅管理员/);
@@ -74,7 +76,9 @@ test('固定分组使用服务器 Key，忽略浏览器提交的地址和 Key', 
     assert.equal(parsed.baseUrl, 'https://api.opens.chat/v1');
     assert.equal(parsed.stream, true);
     assert.equal(parsed.reasoningEffort, 'high');
-    const deepseek = parseGenerationModel({ group: 'GRT-PRO稳定', model: 'deepseek-v4.1-flash', protocol: 'chat-completions' }, { allowFixedGroups: true });
+    assert.throws(() => parseGenerationModel({ group: 'GRT-PRO稳定', model: 'deepseek-v4.1-flash', protocol: 'chat-completions' }, { allowFixedGroups: true }), /该固定分组不提供此模型/);
+    const deepseek = parseGenerationModel({ group: 'DS-DeepSeek', model: 'deepseek-v4.1-flash', protocol: 'chat-completions' }, { allowFixedGroups: true });
+    assert.equal(deepseek.apiKey, 'SERVER_ONLY_DEEPSEEK_KEY');
     assert.equal(deepseek.protocol, 'chat-completions');
     assert.equal(deepseek.reasoningEffort, 'high');
     const claude = parseGenerationModel({ group: 'claude-opus-5-5', model: 'claude-opus-5-5', protocol: 'anthropic-messages' }, { allowFixedGroups: true });
@@ -87,6 +91,8 @@ test('固定分组使用服务器 Key，忽略浏览器提交的地址和 Key', 
   } finally {
     if (previous.grt === undefined) delete process.env.MODEL_KEY_GRT_PRO;
     else process.env.MODEL_KEY_GRT_PRO = previous.grt;
+    if (previous.deepseek === undefined) delete process.env.MODEL_KEY_DS_DEEPSEEK;
+    else process.env.MODEL_KEY_DS_DEEPSEEK = previous.deepseek;
     if (previous.claude === undefined) delete process.env.MODEL_KEY_CLAUDE_OPUS_5_5;
     else process.env.MODEL_KEY_CLAUDE_OPUS_5_5 = previous.claude;
   }

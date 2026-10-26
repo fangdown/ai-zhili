@@ -66,7 +66,7 @@ unset ADMIN_PASSWORD
 
 ## 接口
 
-固定分组（GRT-PRO稳定、GPT-企业级、GPT-官key、GPT-福利、claude-opus-5-5）的 API Key 只放在服务器 `.env`：`MODEL_KEY_GRT_PRO`、`MODEL_KEY_GPT_ENTERPRISE`、`MODEL_KEY_GPT_OFFICIAL`、`MODEL_KEY_GPT_WELFARE`、`MODEL_KEY_CLAUDE_OPUS_5_5`。浏览器只提交分组和模型名称，后端临时注入对应 Key，不把 Key 或接口地址写入历史快照，也不返回给浏览器。
+固定分组（GRT-PRO稳定、DS-DeepSeek、GPT-企业级、GPT-官key、GPT-福利、claude-opus-5-5）的 API Key 只放在服务器 `.env`：`MODEL_KEY_GRT_PRO`、`MODEL_KEY_DS_DEEPSEEK`、`MODEL_KEY_GPT_ENTERPRISE`、`MODEL_KEY_GPT_OFFICIAL`、`MODEL_KEY_GPT_WELFARE`、`MODEL_KEY_CLAUDE_OPUS_5_5`。浏览器只提交分组和模型名称，后端临时注入对应 Key，不把 Key 或接口地址写入历史快照，也不返回给浏览器。
 
 自定义分组仍由每个浏览器保存地址、Key 和模型名称，不与其他浏览器共享。换浏览器、换网站地址或清除网站数据后需要重新填写。点击生成时，只把当前选中的自定义配置提交给后端，在任务内存中临时使用。不要在配置名称、模型名称或提示词中粘贴 Key。
 

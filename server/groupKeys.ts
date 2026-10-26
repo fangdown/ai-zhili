@@ -5,6 +5,7 @@ export const FIXED_GROUP_BASE_URL = 'https://api.opens.chat/v1';
 
 const GROUP_KEY_ENV: Record<FixedModelGroup, string> = {
   'GRT-PRO稳定': 'MODEL_KEY_GRT_PRO',
+  'DS-DeepSeek': 'MODEL_KEY_DS_DEEPSEEK',
   'GPT-企业级': 'MODEL_KEY_GPT_ENTERPRISE',
   'GPT-官key': 'MODEL_KEY_GPT_OFFICIAL',
   'GPT-福利': 'MODEL_KEY_GPT_WELFARE',
